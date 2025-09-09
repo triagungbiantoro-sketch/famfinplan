@@ -27,7 +27,7 @@ class DatabaseHelper {
     final path = await databasePath;
     return await openDatabase(
       path,
-      version: 9, // versi terbaru
+      version: 9,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -84,7 +84,8 @@ class DatabaseHelper {
         lastOilKm INTEGER NOT NULL,
         oilUsageMonths INTEGER NOT NULL,
         lastOilChangeDate TEXT,
-        nextOilDate TEXT
+        nextOilDate TEXT,
+        reminderDateTime TEXT
       )
     ''');
   }
@@ -105,6 +106,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 8) {
       await _addColumnIfNotExists(db, 'vehicles', 'nextOilDate', 'TEXT');
+    }
+    if (oldVersion < 9) {
+      await _addColumnIfNotExists(db, 'vehicles', 'reminderDateTime', 'TEXT');
     }
   }
 
@@ -300,9 +304,19 @@ class DatabaseHelper {
   }
 
   // -------------------- VEHICLES --------------------
-  Future<int> insertVehicle(Map<String, dynamic> row) async {
+  Future<int> insertVehicle(Map<String, dynamic> row, {DateTime? reminderDateTime}) async {
     final db = await database;
-    final id = await db.insert('vehicles', row);
+    final safeRow = {
+      'vehicleType': row['vehicleType'] ?? '',
+      'plateNumber': row['plateNumber'] ?? '',
+      'taxDate': row['taxDate'] ?? DateTime.now().toIso8601String(),
+      'lastOilKm': row['lastOilKm'] ?? 0,
+      'oilUsageMonths': row['oilUsageMonths'] ?? 0,
+      'lastOilChangeDate': row['lastOilChangeDate'],
+      'nextOilDate': row['nextOilDate'],
+      'reminderDateTime': reminderDateTime?.toIso8601String() ?? row['reminderDateTime'],
+    };
+    final id = await db.insert('vehicles', safeRow);
     dataChanged.value = !dataChanged.value;
     return id;
   }
@@ -312,9 +326,19 @@ class DatabaseHelper {
     return await db.query('vehicles', orderBy: "id DESC");
   }
 
-  Future<int> updateVehicle(int id, Map<String, dynamic> row) async {
+  Future<int> updateVehicle(int id, Map<String, dynamic> row, {DateTime? reminderDateTime}) async {
     final db = await database;
-    final result = await db.update('vehicles', row, where: 'id = ?', whereArgs: [id]);
+    final safeRow = {
+      'vehicleType': row['vehicleType'] ?? '',
+      'plateNumber': row['plateNumber'] ?? '',
+      'taxDate': row['taxDate'] ?? DateTime.now().toIso8601String(),
+      'lastOilKm': row['lastOilKm'] ?? 0,
+      'oilUsageMonths': row['oilUsageMonths'] ?? 0,
+      'lastOilChangeDate': row['lastOilChangeDate'],
+      'nextOilDate': row['nextOilDate'],
+      'reminderDateTime': reminderDateTime?.toIso8601String() ?? row['reminderDateTime'],
+    };
+    final result = await db.update('vehicles', safeRow, where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }

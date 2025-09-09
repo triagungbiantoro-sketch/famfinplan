@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
 import '../db/database_helper.dart';
+import '../services/notification_service.dart';
 
 class VehicleScreen extends StatefulWidget {
   const VehicleScreen({super.key});
@@ -20,6 +21,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
   DateTime? _taxDate;
   DateTime? _lastOilChangeDate;
   DateTime? _nextOilDate;
+  DateTime? _reminderDateTime; // tambahan
   int? _editingVehicleId;
 
   final List<String> _vehicleTypes = ['Sepeda Motor / Motorcycle', 'Mobil / Car'];
@@ -31,11 +33,13 @@ class _VehicleScreenState extends State<VehicleScreen> {
     _vehiclesFuture = DatabaseHelper.instance.getVehicles();
   }
 
-  String _formatDate(String? isoDate) {
+  String _formatDate(String? isoDate, {bool includeTime = false}) {
     if (isoDate == null) return '-';
     final date = DateTime.tryParse(isoDate);
     if (date == null) return '-';
-    return DateFormat('dd/MM/yyyy').format(date);
+    return includeTime
+        ? DateFormat('dd/MM/yyyy HH:mm').format(date)
+        : DateFormat('dd/MM/yyyy').format(date);
   }
 
   void _refreshVehicles() {
@@ -53,6 +57,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
     _taxDate = null;
     _lastOilChangeDate = null;
     _nextOilDate = null;
+    _reminderDateTime = null;
     _editingVehicleId = null;
   }
 
@@ -88,6 +93,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
       'oilUsageMonths': int.parse(_oilUsageMonthsController.text),
       'lastOilChangeDate': _lastOilChangeDate?.toIso8601String(),
       'nextOilDate': _nextOilDate?.toIso8601String(),
+      'reminderDateTime': _reminderDateTime?.toIso8601String(),
     };
 
     if (_editingVehicleId == null) {
@@ -101,6 +107,16 @@ class _VehicleScreenState extends State<VehicleScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('vehicle_updated'.tr())),
+      );
+    }
+
+    // Schedule notification jika reminder diisi
+    if (_reminderDateTime != null) {
+      await NotificationService.instance.scheduleNotification(
+        _editingVehicleId ?? DateTime.now().millisecondsSinceEpoch ~/ 1000, // unique id
+        'Pengingat Kendaraan',
+        'Waktunya periksa/mengganti oli: ${_vehicleTypeController.text} - ${_plateNumberController.text}',
+        _reminderDateTime!,
       );
     }
 
@@ -118,6 +134,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
       _taxDate = vehicle['taxDate'] != null ? DateTime.tryParse(vehicle['taxDate']) : null;
       _lastOilChangeDate = vehicle['lastOilChangeDate'] != null ? DateTime.tryParse(vehicle['lastOilChangeDate']) : null;
       _nextOilDate = vehicle['nextOilDate'] != null ? DateTime.tryParse(vehicle['nextOilDate']) : null;
+      _reminderDateTime = vehicle['reminderDateTime'] != null ? DateTime.tryParse(vehicle['reminderDateTime']) : null;
     });
   }
 
@@ -218,6 +235,10 @@ class _VehicleScreenState extends State<VehicleScreen> {
                   }),
               const SizedBox(height: 6),
               _buildDatePickerField('next_oil_date'.tr(), _nextOilDate, (_) {}),
+              const SizedBox(height: 6),
+              _buildDateTimePickerField('reminder'.tr(), _reminderDateTime, (dateTime) {
+                setState(() => _reminderDateTime = dateTime);
+              }),
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
@@ -273,6 +294,46 @@ class _VehicleScreenState extends State<VehicleScreen> {
     );
   }
 
+  Widget _buildDateTimePickerField(String label, DateTime? selectedDateTime, Function(DateTime) onDateTimeSelected) {
+    return InkWell(
+      onTap: () async {
+        final pickedDate = await showDatePicker(
+          context: context,
+          initialDate: selectedDateTime ?? DateTime.now(),
+          firstDate: DateTime(2000),
+          lastDate: DateTime(2100),
+        );
+        if (pickedDate != null) {
+          final pickedTime = await showTimePicker(
+            context: context,
+            initialTime: selectedDateTime != null
+                ? TimeOfDay(hour: selectedDateTime.hour, minute: selectedDateTime.minute)
+                : TimeOfDay.now(),
+          );
+          if (pickedTime != null) {
+            final dateTime = DateTime(
+              pickedDate.year,
+              pickedDate.month,
+              pickedDate.day,
+              pickedTime.hour,
+              pickedTime.minute,
+            );
+            onDateTimeSelected(dateTime);
+          }
+        }
+      },
+      child: InputDecorator(
+        decoration: _inputDecoration(label),
+        child: Text(
+          selectedDateTime == null
+              ? 'select_date_time'.tr()
+              : DateFormat('dd/MM/yyyy HH:mm').format(selectedDateTime),
+          style: const TextStyle(fontSize: 13),
+        ),
+      ),
+    );
+  }
+
   Widget _buildVehicleCards() {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _vehiclesFuture,
@@ -300,16 +361,12 @@ class _VehicleScreenState extends State<VehicleScreen> {
                     Text('${v['vehicleType']} - ${v['plateNumber']}',
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}',
-                        style: const TextStyle(fontSize: 12)),
-                    Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}',
-                        style: const TextStyle(fontSize: 12)),
-                    Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}',
-                        style: const TextStyle(fontSize: 12)),
-                    Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}',
-                        style: const TextStyle(fontSize: 12)),
-                    Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}',
-                        style: const TextStyle(fontSize: 12)),
+                    Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}', style: const TextStyle(fontSize: 12)),
+                    Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}', style: const TextStyle(fontSize: 12)),
+                    Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}', style: const TextStyle(fontSize: 12)),
+                    Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}', style: const TextStyle(fontSize: 12)),
+                    Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}', style: const TextStyle(fontSize: 12)),
+                    Text('${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}', style: const TextStyle(fontSize: 12)),
                     const SizedBox(height: 6),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
