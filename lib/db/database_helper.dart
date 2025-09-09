@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 
 class DatabaseHelper {
   DatabaseHelper._privateConstructor();
@@ -17,12 +18,16 @@ class DatabaseHelper {
     return _database!;
   }
 
-  Future<Database> _initDatabase() async {
+  Future<String> get databasePath async {
     final dbPath = await getDatabasesPath();
-    final path = join(dbPath, 'famfinplan.db');
+    return join(dbPath, 'famfinplan.db');
+  }
+
+  Future<Database> _initDatabase() async {
+    final path = await databasePath;
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -65,7 +70,8 @@ class DatabaseHelper {
         note TEXT,
         monthYear TEXT NOT NULL,
         date TEXT NOT NULL,
-        realized INTEGER DEFAULT 0
+        realized INTEGER DEFAULT 0,
+        notify_at TEXT
       )
     ''');
 
@@ -90,35 +96,75 @@ class DatabaseHelper {
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE budget_usage ADD COLUMN realized INTEGER DEFAULT 0');
     }
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE budget_usage ADD COLUMN notify_at TEXT');
+    }
   }
 
-  /// Backup database ke file lain
+  // -------------------- BACKUP --------------------
   Future<String?> backupDatabase() async {
     try {
-      final dbPath = await getDatabasesPath();
-      final dbFile = File(join(dbPath, 'famfinplan.db'));
+      final dbPath = await databasePath;
+      final dbFile = File(dbPath);
       if (!await dbFile.exists()) return null;
 
-      final backupFile = File(join(
-        dbPath,
-        'famfinplan_backup_${DateTime.now().millisecondsSinceEpoch}.db',
-      ));
-      await dbFile.copy(backupFile.path);
-      print('Backup sukses di: ${backupFile.path}');
-      return backupFile.path;
+      final backupDir =
+          Directory('${(await getApplicationDocumentsDirectory()).path}/backups');
+      if (!await backupDir.exists()) await backupDir.create();
+
+      final backupPath =
+          join(backupDir.path, 'famfinplan_backup_${DateTime.now().millisecondsSinceEpoch}.db');
+      await dbFile.copy(backupPath);
+      return backupPath;
     } catch (e) {
       print('Backup gagal: $e');
       return null;
     }
   }
 
-  /// Reset database
+  Future<bool> backupDatabaseTo(String outputPath) async {
+    try {
+      final dbPath = await databasePath;
+      final dbFile = File(dbPath);
+      if (!await dbFile.exists()) return false;
+
+      final destFile = File(outputPath);
+      await dbFile.copy(destFile.path);
+      return true;
+    } catch (e) {
+      print('Backup gagal: $e');
+      return false;
+    }
+  }
+
+  // -------------------- RESTORE --------------------
+  Future<bool> restoreDatabase(String backupPath) async {
+    try {
+      final path = await databasePath;
+      if (_database != null) {
+        await _database!.close();
+        _database = null;
+      }
+
+      final backupFile = File(backupPath);
+      if (!await backupFile.exists()) return false;
+
+      await backupFile.copy(path);
+      await database;
+      dataChanged.value = !dataChanged.value;
+      return true;
+    } catch (e) {
+      print('Restore gagal: $e');
+      return false;
+    }
+  }
+
+  // -------------------- RESET --------------------
   Future<void> resetDatabase() async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, 'famfinplan.db');
+    final path = await databasePath;
     await deleteDatabase(path);
     _database = null;
-    await database; // recreate database kosong
+    await database;
     dataChanged.value = !dataChanged.value;
   }
 
@@ -146,7 +192,8 @@ class DatabaseHelper {
 
   Future<int> updateIncome(int id, Map<String, dynamic> row) async {
     final db = await database;
-    final result = await db.update('income', row, where: 'id = ?', whereArgs: [id]);
+    final result =
+        await db.update('income', row, where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
@@ -182,14 +229,16 @@ class DatabaseHelper {
 
   Future<int> updateExpense(int id, Map<String, dynamic> row) async {
     final db = await database;
-    final result = await db.update('expense', row, where: 'id = ?', whereArgs: [id]);
+    final result =
+        await db.update('expense', row, where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
 
   Future<int> deleteExpense(int id) async {
     final db = await database;
-    final result = await db.delete('expense', where: 'id = ?', whereArgs: [id]);
+    final result =
+        await db.delete('expense', where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
@@ -198,10 +247,15 @@ class DatabaseHelper {
   Future<Map<String, dynamic>?> getBudget({DateTime? month}) async {
     final db = await database;
     final m = _formatMonth(month ?? DateTime.now());
-    final res = await db.query('budget', where: 'monthYear = ?', whereArgs: [m]);
+    final res =
+        await db.query('budget', where: 'monthYear = ?', whereArgs: [m]);
     if (res.isNotEmpty) return res.first;
 
-    final id = await db.insert('budget', {'totalBudget': 0, 'usedBudget': 0, 'monthYear': m});
+    final id = await db.insert('budget', {
+      'totalBudget': 0,
+      'usedBudget': 0,
+      'monthYear': m,
+    });
     return {'id': id, 'totalBudget': 0.0, 'usedBudget': 0.0, 'monthYear': m};
   }
 
@@ -210,10 +264,15 @@ class DatabaseHelper {
     final m = _formatMonth(month ?? DateTime.now());
     final existing = await getBudget(month: month);
     if (existing != null) {
-      await db.update('budget', {'totalBudget': totalBudget, 'usedBudget': 0, 'monthYear': m},
-          where: 'id = ?', whereArgs: [existing['id']]);
+      await db.update(
+        'budget',
+        {'totalBudget': totalBudget, 'usedBudget': 0, 'monthYear': m},
+        where: 'id = ?',
+        whereArgs: [existing['id']],
+      );
     } else {
-      await db.insert('budget', {'totalBudget': totalBudget, 'usedBudget': 0, 'monthYear': m});
+      await db.insert('budget',
+          {'totalBudget': totalBudget, 'usedBudget': 0, 'monthYear': m});
     }
     await db.delete('budget_usage', where: 'monthYear = ?', whereArgs: [m]);
     dataChanged.value = !dataChanged.value;
@@ -223,7 +282,8 @@ class DatabaseHelper {
     final db = await database;
     final existing = await getBudget(month: month);
     if (existing != null) {
-      await db.update('budget', {'totalBudget': totalBudget}, where: 'id = ?', whereArgs: [existing['id']]);
+      await db.update('budget', {'totalBudget': totalBudget},
+          where: 'id = ?', whereArgs: [existing['id']]);
       dataChanged.value = !dataChanged.value;
     }
   }
@@ -243,14 +303,16 @@ class DatabaseHelper {
 
   Future<int> updateVehicle(int id, Map<String, dynamic> row) async {
     final db = await database;
-    final result = await db.update('vehicles', row, where: 'id = ?', whereArgs: [id]);
+    final result =
+        await db.update('vehicles', row, where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
 
   Future<int> deleteVehicle(int id) async {
     final db = await database;
-    final result = await db.delete('vehicles', where: 'id = ?', whereArgs: [id]);
+    final result =
+        await db.delete('vehicles', where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
@@ -259,56 +321,82 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getBudgetUsage({DateTime? month}) async {
     final db = await database;
     final m = _formatMonth(month ?? DateTime.now());
-    return await db.query('budget_usage', where: 'monthYear = ?', whereArgs: [m], orderBy: "date DESC");
+    return await db.query('budget_usage',
+        where: 'monthYear = ?', whereArgs: [m], orderBy: "date DESC");
   }
 
-  Future<void> addBudgetUsage(double amount, String? note, {DateTime? month}) async {
+  Future<void> addBudgetUsage(double amount, String? note,
+      {DateTime? month, DateTime? notifyAt}) async {
     final db = await database;
     final now = DateTime.now();
     final m = _formatMonth(month ?? now);
-    await db.insert('budget_usage', {'amount': amount, 'note': note, 'monthYear': m, 'date': now.toIso8601String(), 'realized': 0});
+    await db.insert('budget_usage', {
+      'amount': amount,
+      'note': note,
+      'monthYear': m,
+      'date': now.toIso8601String(),
+      'realized': 0,
+      'notify_at': notifyAt?.toIso8601String(),
+    });
 
     final budget = await getBudget(month: month);
     if (budget != null) {
-      double used = (budget['usedBudget'] ?? 0) + amount;
-      await db.update('budget', {'usedBudget': used}, where: 'id = ?', whereArgs: [budget['id']]);
+      double used = (budget['usedBudget'] ?? 0).toDouble() + amount;
+      await db.update('budget', {'usedBudget': used},
+          where: 'id = ?', whereArgs: [budget['id']]);
     }
     dataChanged.value = !dataChanged.value;
   }
 
-  Future<void> updateBudgetUsage(int id, double newAmount, String? note, {DateTime? month}) async {
+  Future<void> updateBudgetUsage(int id, double newAmount, String? note,
+      {DateTime? month, DateTime? notifyAt}) async {
     final db = await database;
     final old = await db.query('budget_usage', where: 'id = ?', whereArgs: [id]);
     if (old.isEmpty) return;
 
-    final oldAmount = old.first['amount'] is int ? (old.first['amount'] as int).toDouble() : old.first['amount'] as double;
-    await db.update('budget_usage', {'amount': newAmount, 'note': note}, where: 'id = ?', whereArgs: [id]);
+    final oldAmount = (old.first['amount'] as num).toDouble();
+
+    await db.update(
+      'budget_usage',
+      {
+        'amount': newAmount,
+        'note': note,
+        'notify_at': notifyAt?.toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
 
     final budget = await getBudget(month: month);
     if (budget != null) {
-      double used = (budget['usedBudget'] ?? 0) - oldAmount + newAmount;
-      await db.update('budget', {'usedBudget': used}, where: 'id = ?', whereArgs: [budget['id']]);
+      double used = (budget['usedBudget'] ?? 0).toDouble() - oldAmount + newAmount;
+      await db.update('budget', {'usedBudget': used},
+          where: 'id = ?', whereArgs: [budget['id']]);
     }
     dataChanged.value = !dataChanged.value;
   }
 
   Future<void> deleteBudgetUsage(int id, {DateTime? month}) async {
     final db = await database;
-    final usage = await db.query('budget_usage', where: 'id = ?', whereArgs: [id]);
+    final usage =
+        await db.query('budget_usage', where: 'id = ?', whereArgs: [id]);
     if (usage.isEmpty) return;
 
-    final amount = usage.first['amount'] is int ? (usage.first['amount'] as int).toDouble() : usage.first['amount'] as double;
+    final amount = (usage.first['amount'] as num).toDouble();
+
     await db.delete('budget_usage', where: 'id = ?', whereArgs: [id]);
 
     final budget = await getBudget(month: month);
     if (budget != null) {
-      double used = (budget['usedBudget'] ?? 0) - amount;
-      await db.update('budget', {'usedBudget': used}, where: 'id = ?', whereArgs: [budget['id']]);
+      double used = (budget['usedBudget'] ?? 0).toDouble() - amount;
+      await db.update('budget', {'usedBudget': used},
+          where: 'id = ?', whereArgs: [budget['id']]);
     }
     dataChanged.value = !dataChanged.value;
   }
 
-  Future<void> updateBudgetUsageRealized(int id, bool realized, {DateTime? month}) async {
+  Future<void> updateBudgetUsageRealized(int id, bool realized,
+      {DateTime? month}) async {
     final db = await database;
     await db.update(
       'budget_usage',
@@ -328,15 +416,11 @@ class DatabaseHelper {
     double totalExpense = 0.0;
 
     for (var inc in incomes) {
-      final amt = inc['amount'];
-      if (amt is int) totalIncome += amt.toDouble();
-      if (amt is double) totalIncome += amt;
+      totalIncome += (inc['amount'] as num).toDouble();
     }
 
     for (var exp in expenses) {
-      final amt = exp['amount'];
-      if (amt is int) totalExpense += amt.toDouble();
-      if (amt is double) totalExpense += amt;
+      totalExpense += (exp['amount'] as num).toDouble();
     }
 
     return {
@@ -345,7 +429,7 @@ class DatabaseHelper {
     };
   }
 
-  // -------------------- HELPER --------------------
+  // -------------------- HELPERS --------------------
   String _formatMonth(DateTime date) => DateFormat('yyyy-MM').format(date);
 
   DateTime _parseDate(Object? value) {

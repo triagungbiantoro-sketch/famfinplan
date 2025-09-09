@@ -32,10 +32,30 @@ class _IncomeScreenState extends State<IncomeScreen> {
   int _selectedMonth = DateTime.now().month;
   int _selectedYear = DateTime.now().year;
 
+  // Currency
+  String _currencySymbol = "Rp";
+  String _currencyCode = "IDR";
+
   @override
   void initState() {
     super.initState();
+    _loadSettings();
     _loadIncome();
+
+    // ✅ default tanggal = hari ini
+    _selectedDate = DateTime.now();
+  }
+
+  void _loadSettings() {
+    SettingsNotifier.instance.currentCurrency.addListener(() {
+      final value = SettingsNotifier.instance.currentCurrency.value;
+      final parts = value.split(" ");
+      setState(() {
+        _currencyCode = parts[0];
+        _currencySymbol =
+            parts.length > 1 ? parts[1].replaceAll("(", "").replaceAll(")", "") : _currencyCode;
+      });
+    });
   }
 
   Future<void> _loadIncome() async {
@@ -43,6 +63,21 @@ class _IncomeScreenState extends State<IncomeScreen> {
     setState(() {
       _incomeList = data;
     });
+  }
+
+  String _formatCurrency(double value) {
+    final locale = _currencyCode == "IDR" ? "id_ID" : "en_US";
+    final decimalDigits = _currencyCode == "IDR" ? 0 : 2;
+    return NumberFormat.currency(
+      locale: locale,
+      symbol: _currencySymbol,
+      decimalDigits: decimalDigits,
+    ).format(value);
+  }
+
+  double _parseCurrency(String input) {
+    final cleaned = input.replaceAll(RegExp(r'[^\d.]'), '');
+    return double.tryParse(cleaned) ?? 0;
   }
 
   Future<void> _saveIncome() async {
@@ -54,7 +89,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
         return;
       }
 
-      final amount = double.tryParse(_amountController.text) ?? 0;
+      final amount = _parseCurrency(_amountController.text);
       final note = _noteController.text;
 
       await DatabaseHelper.instance.insertIncome({
@@ -67,12 +102,12 @@ class _IncomeScreenState extends State<IncomeScreen> {
       _amountController.clear();
       _noteController.clear();
       _selectedCategory = null;
-      _selectedDate = null;
+      _selectedDate = DateTime.now(); // ✅ reset ke hari ini
 
       _loadIncome();
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("data_saved"))),
+        SnackBar(content: Text(tr("income_saved", args: [_formatCurrency(amount), tr(_selectedCategory ?? "other")]))),
       );
     }
   }
@@ -86,100 +121,86 @@ class _IncomeScreenState extends State<IncomeScreen> {
   }
 
   Future<void> _editIncome(Map<String, dynamic> income) async {
-    final editAmountController =
-        TextEditingController(text: income["amount"].toString());
-    final editNoteController =
-        TextEditingController(text: income["note"] ?? "");
+    final editAmountController = TextEditingController(text: _formatCurrency((income["amount"] as num).toDouble()));
+    final editNoteController = TextEditingController(text: income["note"] ?? "");
     String? editCategory = income["category"];
     DateTime editDate = DateTime.parse(income["date"]);
 
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(tr("edit_income")),
-          content: SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildFancyTextField(
-                  controller: editAmountController,
-                  label: tr("amount"),
-                  icon: Icons.attach_money,
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 12),
-                _buildFancyDropdown(
-                  label: tr("category"),
-                  value: editCategory,
-                  items: _categories,
-                  onChanged: (val) => editCategory = val,
-                  icon: Icons.category,
-                ),
-                const SizedBox(height: 12),
-                InkWell(
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: editDate,
-                      firstDate: DateTime(2000),
-                      lastDate: DateTime(2100),
-                    );
-                    if (picked != null) {
-                      setState(() {
-                        editDate = picked;
-                      });
-                    }
-                  },
-                  child: InputDecorator(
-                    decoration: InputDecoration(
-                      labelText: tr("date"),
-                      prefixIcon: Icon(Icons.calendar_today),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: Text(
-                      DateFormat("dd/MM/yyyy", context.locale.toString())
-                          .format(editDate),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _buildFancyTextField(
-                  controller: editNoteController,
-                  label: tr("note"),
-                  icon: Icons.note_alt,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              child: Text(tr("cancel")),
-              onPressed: () => Navigator.pop(context),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blueAccent,
+      builder: (context) => AlertDialog(
+        title: Text(tr("edit_income")),
+        content: SingleChildScrollView(
+          child: Column(
+            children: [
+              _buildFancyTextField(
+                controller: editAmountController,
+                label: tr("amount"),
+                icon: Icons.attach_money,
+                keyboardType: TextInputType.number,
               ),
-              child: Text(tr("save")),
-              onPressed: () async {
-                await DatabaseHelper.instance.updateIncome(income["id"], {
-                  "amount": double.tryParse(editAmountController.text) ?? 0,
-                  "category": editCategory ?? "other",
-                  "note": editNoteController.text,
-                  "date": editDate.toIso8601String(),
-                });
-                Navigator.pop(context);
-                _loadIncome();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(tr("data_updated"))),
-                );
-              },
-            ),
-          ],
-        );
-      },
+              const SizedBox(height: 12),
+              _buildFancyDropdown(
+                label: tr("category"),
+                value: editCategory,
+                items: _categories,
+                onChanged: (val) => editCategory = val,
+                icon: Icons.category,
+              ),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: editDate,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) setState(() => editDate = picked);
+                },
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: tr("date"),
+                    prefixIcon: const Icon(Icons.calendar_today),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                  child: Text(DateFormat("dd/MM/yyyy", context.locale.toString()).format(editDate)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildFancyTextField(
+                controller: editNoteController,
+                label: tr("note"),
+                icon: Icons.note_alt,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            child: Text(tr("cancel")),
+            onPressed: () => Navigator.pop(context),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+            child: Text(tr("save"), style: const TextStyle(color: Colors.white)),
+            onPressed: () async {
+              final updatedAmount = _parseCurrency(editAmountController.text);
+              await DatabaseHelper.instance.updateIncome(income["id"], {
+                "amount": updatedAmount,
+                "category": editCategory ?? "other",
+                "note": editNoteController.text,
+                "date": editDate.toIso8601String(),
+              });
+              Navigator.pop(context);
+              _loadIncome();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(tr("data_updated"))),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -203,7 +224,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
           return AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeInOut,
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
@@ -216,8 +237,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
             ),
             child: Card(
               elevation: 0,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: TextFormField(
                 controller: controller,
                 keyboardType: keyboardType,
@@ -225,11 +245,8 @@ class _IncomeScreenState extends State<IncomeScreen> {
                     value == null || value.isEmpty ? "${tr("enter")} $label" : null,
                 decoration: InputDecoration(
                   labelText: label,
-                  prefixIcon:
-                      icon != null ? Icon(icon, color: Colors.blueAccent) : null,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
+                  prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent) : null,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                 ),
               ),
             ),
@@ -248,9 +265,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
   }) {
     return DropdownButtonFormField<String>(
       value: value,
-      items: items
-          .map((cat) => DropdownMenuItem(value: cat, child: Text(tr(cat))))
-          .toList(),
+      items: items.map((cat) => DropdownMenuItem(value: cat, child: Text(tr(cat)))).toList(),
       onChanged: onChanged,
       validator: (val) => val == null ? "${tr("choose")} $label" : null,
       decoration: InputDecoration(
@@ -296,11 +311,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                     label: tr("category"),
                     value: _selectedCategory,
                     items: _categories,
-                    onChanged: (val) {
-                      setState(() {
-                        _selectedCategory = val;
-                      });
-                    },
+                    onChanged: (val) => setState(() => _selectedCategory = val),
                     icon: Icons.category,
                   ),
                   const SizedBox(height: 16),
@@ -308,30 +319,20 @@ class _IncomeScreenState extends State<IncomeScreen> {
                     onTap: () async {
                       final picked = await showDatePicker(
                         context: context,
-                        initialDate: DateTime.now(),
+                        initialDate: _selectedDate ?? DateTime.now(),
                         firstDate: DateTime(2000),
                         lastDate: DateTime(2100),
                       );
-                      if (picked != null) {
-                        setState(() {
-                          _selectedDate = picked;
-                        });
-                      }
+                      if (picked != null) setState(() => _selectedDate = picked);
                     },
                     child: InputDecorator(
                       decoration: InputDecoration(
                         labelText: tr("date"),
                         prefixIcon: const Icon(Icons.calendar_today),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                       ),
-                      child: Text(
-                        _selectedDate == null
-                            ? tr("pick_date")
-                            : DateFormat("dd/MM/yyyy", context.locale.toString())
-                                .format(_selectedDate!),
-                      ),
+                      child: Text(DateFormat("dd/MM/yyyy", context.locale.toString())
+                          .format(_selectedDate!)), // ✅ default hari ini
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -350,9 +351,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.redAccent,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                   ),
@@ -362,10 +361,8 @@ class _IncomeScreenState extends State<IncomeScreen> {
             const SizedBox(height: 20),
             const Divider(),
             const SizedBox(height: 10),
-            Text(
-              tr("income_list"),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
+            Text(tr("income_list"),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -387,10 +384,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                 DropdownButton<int>(
                   value: _selectedYear,
                   items: List.generate(5, (i) => DateTime.now().year - i)
-                      .map((y) => DropdownMenuItem(
-                            value: y,
-                            child: Text("$y"),
-                          ))
+                      .map((y) => DropdownMenuItem(value: y, child: Text("$y")))
                       .toList(),
                   onChanged: (val) {
                     if (val != null) setState(() => _selectedYear = val);
@@ -399,85 +393,65 @@ class _IncomeScreenState extends State<IncomeScreen> {
               ],
             ),
             const SizedBox(height: 10),
-            ValueListenableBuilder<String>(
-              valueListenable: SettingsNotifier.instance.currentCurrency,
-              builder: (context, currencySymbol, child) {
-                return _filteredIncomeList.isEmpty
-                    ? Center(child: Text(tr("no_data")))
-                    : Card(
-                        elevation: 4,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: DataTable(
-                            headingRowColor: MaterialStateProperty.resolveWith(
-                                (states) => Colors.blueGrey[50]),
-                            headingTextStyle: const TextStyle(
-                                fontWeight: FontWeight.bold, color: Colors.black87),
-                            columnSpacing: 20,
-                            columns: [
-                              DataColumn(label: Text(tr("amount"))),
-                              DataColumn(label: Text(tr("category"))),
-                              DataColumn(label: Text(tr("date"))),
-                              DataColumn(label: Text(tr("note"))),
-                              DataColumn(label: Text(tr("action"))),
-                            ],
-                            rows: _filteredIncomeList.map((income) {
-                              final date = DateTime.parse(income["date"]);
-                              final color =
-                                  _categoryColors[income["category"]] ?? Colors.grey;
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(
-                                    NumberFormat.currency(
-                                            locale: context.locale.toString(),
-                                            symbol: currencySymbol.split(" ")[0],
-                                            decimalDigits: 0)
-                                        .format(income["amount"]),
-                                    style: const TextStyle(fontWeight: FontWeight.w500),
-                                  )),
-                                  DataCell(Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: color.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      tr(income["category"]),
-                                      style: TextStyle(
-                                          color: color, fontWeight: FontWeight.bold),
-                                    ),
-                                  )),
-                                  DataCell(Text(
-                                      DateFormat("dd/MM/yyyy", context.locale.toString())
-                                          .format(date))),
-                                  DataCell(Text(income["note"] ?? "-")),
-                                  DataCell(Row(
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.edit,
-                                            color: Colors.orange),
-                                        onPressed: () => _editIncome(income),
-                                      ),
-                                      IconButton(
-                                        icon:
-                                            const Icon(Icons.delete, color: Colors.red),
-                                        onPressed: () =>
-                                            _deleteIncome(income["id"]),
-                                      ),
-                                    ],
-                                  )),
+            _filteredIncomeList.isEmpty
+                ? Center(child: Text(tr("no_data")))
+                : Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: DataTable(
+                        headingRowColor:
+                            MaterialStateProperty.resolveWith((states) => Colors.blueGrey[50]),
+                        headingTextStyle: const TextStyle(
+                            fontWeight: FontWeight.bold, color: Colors.black87),
+                        columnSpacing: 20,
+                        columns: [
+                          DataColumn(label: Text(tr("amount"))),
+                          DataColumn(label: Text(tr("category"))),
+                          DataColumn(label: Text(tr("date"))),
+                          DataColumn(label: Text(tr("note"))),
+                          DataColumn(label: Text(tr("action"))),
+                        ],
+                        rows: _filteredIncomeList.map((income) {
+                          final date = DateTime.parse(income["date"]);
+                          final color = _categoryColors[income["category"]] ?? Colors.grey;
+
+                          return DataRow(
+                            cells: [
+                              DataCell(Text(
+                                _formatCurrency((income["amount"] as num).toDouble()),
+                                style: const TextStyle(fontWeight: FontWeight.w500),
+                              )),
+                              DataCell(Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(tr(income["category"]),
+                                    style: TextStyle(
+                                        color: color, fontWeight: FontWeight.bold)),
+                              )),
+                              DataCell(Text(DateFormat("dd/MM/yyyy", context.locale.toString())
+                                  .format(date))),
+                              DataCell(Text(income["note"] ?? "-")),
+                              DataCell(Row(
+                                children: [
+                                  IconButton(
+                                      icon: const Icon(Icons.edit, color: Colors.orange),
+                                      onPressed: () => _editIncome(income)),
+                                  IconButton(
+                                      icon: const Icon(Icons.delete, color: Colors.red),
+                                      onPressed: () => _deleteIncome(income["id"])),
                                 ],
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                      );
-              },
-            ),
+                              )),
+                            ],
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
           ],
         ),
       ),

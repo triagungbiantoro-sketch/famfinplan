@@ -1,5 +1,10 @@
+// settings_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
+import 'package:path_provider/path_provider.dart';
 import '../db/database_helper.dart';
 import '../main.dart';
 import 'settings_notifier.dart';
@@ -44,9 +49,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveSettings() async {
     await SettingsNotifier.instance.saveSettings(selectedCurrency, selectedLanguage);
 
-    // Ganti bahasa
     if (languagesMap.containsKey(selectedLanguage)) {
-      await context.setLocale(languagesMap[selectedLanguage]!);
+      await EasyLocalization.of(context)!.setLocale(languagesMap[selectedLanguage]!);
       FamFinPlan.restartApp(context);
     }
 
@@ -56,6 +60,123 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // -------------------- BACKUP DATABASE --------------------
+  Future<void> _backupDatabase() async {
+    try {
+      final databasesPath = await getDatabasesPath();
+      final dbPath = p.join(databasesPath, 'famfinplan.db');
+      final dbFile = File(dbPath);
+
+      if (!await dbFile.exists()) {
+        throw Exception("File database tidak ditemukan");
+      }
+
+      final appDir = await getApplicationDocumentsDirectory();
+      final backupDir = Directory(p.join(appDir.path, 'backups'));
+      if (!await backupDir.exists()) await backupDir.create(recursive: true);
+
+      final backupPath = p.join(
+        backupDir.path,
+        'famfinplan_backup_${DateTime.now().millisecondsSinceEpoch}.db',
+      );
+
+      await dbFile.copy(backupPath);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr("backup_success") + ": $backupPath")),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr("backup_failed") + ": $e")),
+      );
+    }
+  }
+
+  // -------------------- RESTORE DATABASE DENGAN PILIHAN --------------------
+  Future<void> _restoreDatabase() async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final backupDir = Directory(p.join(appDir.path, 'backups'));
+      if (!await backupDir.exists()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr("restore_failed") + ": Folder backup tidak ada")),
+        );
+        return;
+      }
+
+      final files = backupDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.db'))
+          .toList()
+        ..sort((a, b) => b.path.compareTo(a.path)); // terbaru dulu
+
+      if (files.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr("restore_failed") + ": Tidak ada file backup")),
+        );
+        return;
+      }
+
+      final fileNames = files.map((f) => p.basename(f.path)).toList();
+      String? selectedFile = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(tr("select_backup_to_restore")),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: fileNames.length,
+              itemBuilder: (context, index) {
+                return ListTile(
+                  title: Text(fileNames[index]),
+                  onTap: () => Navigator.pop(context, fileNames[index]),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              child: Text(tr("cancel")),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ],
+        ),
+      );
+
+      if (selectedFile == null) return;
+
+      final fileToRestore =
+          files.firstWhere((f) => p.basename(f.path) == selectedFile);
+
+      final success = await DatabaseHelper.instance.restoreDatabase(fileToRestore.path);
+
+      if (!mounted) return;
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("${tr("restore_success")}: ${p.basename(fileToRestore.path)}"),
+          ),
+        );
+        FamFinPlan.restartApp(context);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr("restore_failed"))),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr("restore_failed") + ": $e")),
+      );
+    }
+  }
+
+  // -------------------- RESET DATABASE --------------------
   Future<void> _resetDatabase() async {
     final controller = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -64,9 +185,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Text(tr("type_reset_to_confirm")),
         content: TextField(
           controller: controller,
-          decoration: InputDecoration(
-            hintText: tr("type_reset_here"),
-          ),
+          decoration: InputDecoration(hintText: tr("type_reset_here")),
         ),
         actions: [
           TextButton(
@@ -92,24 +211,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (confirmed != true) return;
 
-    final backupPath = await DatabaseHelper.instance.backupDatabase();
-    if (!mounted) return;
-
-    if (backupPath != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("backup_success") + ": $backupPath")),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("backup_failed"))),
-      );
-    }
-
+    await _backupDatabase();
     await DatabaseHelper.instance.resetDatabase();
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(tr("database_reset_success"))),
     );
+  }
+
+  // -------------------- DELETE SINGLE BACKUP --------------------
+  Future<void> _deleteSingleBackup() async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final backupDir = Directory(p.join(appDir.path, 'backups'));
+
+      if (!await backupDir.exists()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr("no_backups_found"))),
+        );
+        return;
+      }
+
+      final files = backupDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.db'))
+          .toList()
+        ..sort((a, b) => b.path.compareTo(a.path));
+
+      if (files.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr("no_backups_found"))),
+        );
+        return;
+      }
+
+      final fileNames = files.map((f) => p.basename(f.path)).toList();
+      String? selectedFile = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(tr("select_backup_to_delete")),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: fileNames.length,
+              itemBuilder: (context, index) {
+                return ListTile(
+                  title: Text(fileNames[index]),
+                  trailing: const Icon(Icons.delete, color: Colors.red),
+                  onTap: () => Navigator.pop(context, fileNames[index]),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              child: Text(tr("cancel")),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ],
+        ),
+      );
+
+      if (selectedFile == null) return;
+
+      final fileToDelete =
+          files.firstWhere((f) => p.basename(f.path) == selectedFile);
+
+      await fileToDelete.delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${tr("delete_success")}: $selectedFile")),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr("delete_failed") + ": $e")),
+      );
+    }
   }
 
   @override
@@ -118,99 +300,110 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: Text(tr("settings")),
         centerTitle: true,
+        backgroundColor: Colors.green,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              tr("currency"),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: selectedCurrency,
-              items: currencies
-                  .map((currency) => DropdownMenuItem(
-                        value: currency,
-                        child: Text(currency),
-                      ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedCurrency = value!;
-                });
-              },
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Currency
+              Text(tr("currency"),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: selectedCurrency,
+                items: currencies
+                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                    .toList(),
+                onChanged: (value) => setState(() => selectedCurrency = value!),
+                decoration: InputDecoration(
+                  border:
+                      OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              tr("language"),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: selectedLanguage,
-              items: languagesMap.keys
-                  .map((lang) => DropdownMenuItem(
-                        value: lang,
-                        child: Text(lang),
-                      ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedLanguage = value!;
-                });
-              },
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 24),
+
+              // Language
+              Text(tr("language"),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: selectedLanguage,
+                items: languagesMap.keys
+                    .map((lang) => DropdownMenuItem(value: lang, child: Text(lang)))
+                    .toList(),
+                onChanged: (value) => setState(() => selectedLanguage = value!),
+                decoration: InputDecoration(
+                  border:
+                      OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
-            ),
-            const SizedBox(height: 32),
-            Center(
-              child: Column(
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: _saveSettings,
-                    icon: const Icon(Icons.save),
-                    label: Text(tr("save")),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 32),
+
+              // Buttons
+              Center(
+                child: Column(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _saveSettings,
+                      icon: const Icon(Icons.save),
+                      label: Text(tr("save")),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: _resetDatabase,
-                    icon: const Icon(
-                      Icons.delete_forever,
-                      color: Colors.white,
-                    ),
-                    label: Text(
-                      tr("reset_database"),
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _backupDatabase,
+                      icon: const Icon(Icons.backup),
+                      label: Text(tr("backup_database")),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _restoreDatabase,
+                      icon: const Icon(Icons.restore),
+                      label: Text(tr("restore_database")),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _resetDatabase,
+                      icon: const Icon(Icons.delete_forever, color: Colors.white),
+                      label: Text(tr("reset_database"), style: const TextStyle(color: Colors.white)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _deleteSingleBackup,
+                      icon: const Icon(Icons.delete_outline, color: Colors.white),
+                      label: Text(tr("delete_backup_file"), style: const TextStyle(color: Colors.white)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

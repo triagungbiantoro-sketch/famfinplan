@@ -38,6 +38,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     super.initState();
     _loadSettings();
     _loadExpenses();
+
+    // ✅ Set default tanggal = hari ini
+    _selectedDate = DateTime.now();
   }
 
   void _loadSettings() {
@@ -63,7 +66,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: now,
+      initialDate: _selectedDate ?? now, // ✅ default hari ini atau tanggal terakhir dipilih
       firstDate: DateTime(now.year - 5),
       lastDate: DateTime(now.year + 5),
     );
@@ -81,7 +84,6 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   }
 
   double _parseCurrency(String input) {
-    // Hapus semua simbol & separator sebelum convert ke double
     final cleaned = input.replaceAll(RegExp(r'[^\d.]'), '');
     return double.tryParse(cleaned) ?? 0;
   }
@@ -108,14 +110,14 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       _amountController.clear();
       _noteController.clear();
       _selectedCategory = null;
-      _selectedDate = null;
+      _selectedDate = DateTime.now(); // ✅ reset kembali ke tanggal hari ini
 
       _loadExpenses();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              tr("expense_saved", args: [_formatCurrency(amount), tr(_selectedCategory!)])),
+              tr("expense_saved", args: [_formatCurrency(amount), tr(_selectedCategory ?? "other")])),
         ),
       );
     }
@@ -331,10 +333,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                         prefixIcon: const Icon(Icons.calendar_today),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                       ),
-                      child: Text(_selectedDate == null
-                          ? tr("pick_date")
-                          : DateFormat("dd/MM/yyyy", context.locale.toString())
-                              .format(_selectedDate!)),
+                      child: Text(DateFormat("dd/MM/yyyy", context.locale.toString())
+                          .format(_selectedDate!)), // ✅ default hari ini
                     ),
                   ),
                   const SizedBox(height: 16),
