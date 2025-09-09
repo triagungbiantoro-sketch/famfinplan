@@ -18,6 +18,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
   final TextEditingController _oilUsageMonthsController = TextEditingController();
 
   DateTime? _taxDate;
+  DateTime? _lastOilChangeDate;
   DateTime? _nextOilDate;
   int? _editingVehicleId;
 
@@ -50,8 +51,22 @@ class _VehicleScreenState extends State<VehicleScreen> {
     _lastOilChangeKmController.clear();
     _oilUsageMonthsController.clear();
     _taxDate = null;
+    _lastOilChangeDate = null;
     _nextOilDate = null;
     _editingVehicleId = null;
+  }
+
+  void _calculateNextOilDate() {
+    if (_lastOilChangeDate != null && _oilUsageMonthsController.text.isNotEmpty) {
+      final months = int.tryParse(_oilUsageMonthsController.text) ?? 0;
+      setState(() {
+        _nextOilDate = DateTime(
+          _lastOilChangeDate!.year,
+          _lastOilChangeDate!.month + months,
+          _lastOilChangeDate!.day,
+        );
+      });
+    }
   }
 
   void _saveVehicle() async {
@@ -63,12 +78,15 @@ class _VehicleScreenState extends State<VehicleScreen> {
       return;
     }
 
+    _calculateNextOilDate();
+
     final vehicleData = {
       'vehicleType': _vehicleTypeController.text,
       'plateNumber': _plateNumberController.text,
       'taxDate': _taxDate!.toIso8601String(),
       'lastOilKm': int.parse(_lastOilChangeKmController.text),
       'oilUsageMonths': int.parse(_oilUsageMonthsController.text),
+      'lastOilChangeDate': _lastOilChangeDate?.toIso8601String(),
       'nextOilDate': _nextOilDate?.toIso8601String(),
     };
 
@@ -97,12 +115,9 @@ class _VehicleScreenState extends State<VehicleScreen> {
       _plateNumberController.text = vehicle['plateNumber'] ?? '';
       _lastOilChangeKmController.text = vehicle['lastOilKm']?.toString() ?? '';
       _oilUsageMonthsController.text = vehicle['oilUsageMonths']?.toString() ?? '';
-      _taxDate = vehicle['taxDate'] != null
-          ? DateTime.tryParse(vehicle['taxDate'])
-          : null;
-      _nextOilDate = vehicle['nextOilDate'] != null
-          ? DateTime.tryParse(vehicle['nextOilDate'])
-          : null;
+      _taxDate = vehicle['taxDate'] != null ? DateTime.tryParse(vehicle['taxDate']) : null;
+      _lastOilChangeDate = vehicle['lastOilChangeDate'] != null ? DateTime.tryParse(vehicle['lastOilChangeDate']) : null;
+      _nextOilDate = vehicle['nextOilDate'] != null ? DateTime.tryParse(vehicle['nextOilDate']) : null;
     });
   }
 
@@ -121,7 +136,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildFormCard(),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             _buildVehicleCards(),
           ],
         ),
@@ -136,13 +151,13 @@ class _VehicleScreenState extends State<VehicleScreen> {
         elevation: 3,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: const EdgeInsets.all(10.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('vehicle_info'.tr(),
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
               DropdownButtonFormField<String>(
                 value: _vehicleTypes.contains(_vehicleTypeController.text)
                     ? _vehicleTypeController.text
@@ -150,101 +165,90 @@ class _VehicleScreenState extends State<VehicleScreen> {
                 items: _vehicleTypes
                     .map((type) => DropdownMenuItem(
                           value: type,
-                          child: Text(type, style: const TextStyle(fontSize: 14)),
+                          child: Text(type, style: const TextStyle(fontSize: 13)),
                         ))
                     .toList(),
                 onChanged: (val) => setState(() => _vehicleTypeController.text = val ?? ''),
                 validator: (val) =>
                     val == null || val.isEmpty ? 'select_vehicle_type'.tr() : null,
-                decoration: InputDecoration(
-                  labelText: 'vehicle_type'.tr(),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                ),
+                decoration: _inputDecoration('vehicle_type'.tr()),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               TextFormField(
                 controller: _plateNumberController,
-                decoration: InputDecoration(
-                  labelText: 'plate_number'.tr(),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                ),
-                style: const TextStyle(fontSize: 14),
+                decoration: _inputDecoration('plate_number'.tr()),
+                style: const TextStyle(fontSize: 13),
                 validator: (val) =>
                     val == null || val.isEmpty ? 'enter_plate_number'.tr() : null,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Text('vehicle_tax'.tr(),
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              _buildDatePickerField(
-                  'tax_date'.tr(), _taxDate, (date) => setState(() => _taxDate = date)),
-              const SizedBox(height: 12),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              _buildDatePickerField('tax_date'.tr(), _taxDate, (date) => setState(() => _taxDate = date)),
+              const SizedBox(height: 10),
               Text('oil_schedule'.tr(),
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
               TextFormField(
                 controller: _lastOilChangeKmController,
-                decoration: InputDecoration(
-                  labelText: 'last_oil_km'.tr(),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                ),
-                style: const TextStyle(fontSize: 14),
+                decoration: _inputDecoration('last_oil_km'.tr()),
+                style: const TextStyle(fontSize: 13),
                 keyboardType: TextInputType.number,
                 validator: (val) =>
                     val == null || val.isEmpty ? 'enter_last_oil_km'.tr() : null,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               TextFormField(
                 controller: _oilUsageMonthsController,
-                decoration: InputDecoration(
-                  labelText: 'oil_usage_months'.tr(),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                ),
-                style: const TextStyle(fontSize: 14),
+                decoration: _inputDecoration('oil_usage_months'.tr()),
+                style: const TextStyle(fontSize: 13),
                 keyboardType: TextInputType.number,
                 validator: (val) =>
                     val == null || val.isEmpty ? 'enter_oil_usage_months'.tr() : null,
+                onChanged: (_) => _calculateNextOilDate(),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               _buildDatePickerField(
-                  'next_oil_date'.tr(), _nextOilDate, (date) => setState(() => _nextOilDate = date)),
-              const SizedBox(height: 12),
+                  'last_oil_change_date'.tr(),
+                  _lastOilChangeDate,
+                  (date) {
+                    setState(() => _lastOilChangeDate = date);
+                    _calculateNextOilDate();
+                  }),
+              const SizedBox(height: 6),
+              _buildDatePickerField('next_oil_date'.tr(), _nextOilDate, (_) {}),
+              const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
-                child: Builder(
-                  builder: (context) {
-                    return ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0066FF),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onPressed: _saveVehicle,
-                      child: Text(
-                        _editingVehicleId == null ? 'add'.tr() : 'update'.tr(),
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    );
-                  },
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0066FF),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: _saveVehicle,
+                  child: Text(
+                    _editingVehicleId == null ? 'add'.tr() : 'update'.tr(),
+                    style: const TextStyle(fontSize: 13),
+                  ),
                 ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  InputDecoration _inputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+      filled: true,
+      fillColor: Colors.grey[100],
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
     );
   }
 
@@ -260,16 +264,10 @@ class _VehicleScreenState extends State<VehicleScreen> {
         if (picked != null) onDateSelected(picked);
       },
       child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-          filled: true,
-          fillColor: Colors.grey[100],
-          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        ),
+        decoration: _inputDecoration(label),
         child: Text(
           selectedDate == null ? 'select_date'.tr() : DateFormat('dd/MM/yyyy').format(selectedDate),
-          style: const TextStyle(fontSize: 14),
+          style: const TextStyle(fontSize: 13),
         ),
       ),
     );
@@ -291,22 +289,28 @@ class _VehicleScreenState extends State<VehicleScreen> {
         return Column(
           children: vehicles.map((v) {
             return Card(
-              margin: const EdgeInsets.symmetric(vertical: 6),
+              margin: const EdgeInsets.symmetric(vertical: 4),
               elevation: 2,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               child: Padding(
-                padding: const EdgeInsets.all(12.0),
+                padding: const EdgeInsets.all(10.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text('${v['vehicleType']} - ${v['plateNumber']}',
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}',
+                        style: const TextStyle(fontSize: 12)),
+                    Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}',
+                        style: const TextStyle(fontSize: 12)),
+                    Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}',
+                        style: const TextStyle(fontSize: 12)),
+                    Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}',
+                        style: const TextStyle(fontSize: 12)),
+                    Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}',
+                        style: const TextStyle(fontSize: 12)),
                     const SizedBox(height: 6),
-                    Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}', style: const TextStyle(fontSize: 13)),
-                    Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}', style: const TextStyle(fontSize: 13)),
-                    Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}', style: const TextStyle(fontSize: 13)),
-                    Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}', style: const TextStyle(fontSize: 13)),
-                    const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [

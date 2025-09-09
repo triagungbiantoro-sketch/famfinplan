@@ -20,6 +20,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   DateTime? _selectedDate;
 
   List<Map<String, dynamic>> _expenseList = [];
+  List<Map<String, dynamic>> _filteredExpenseList = [];
+
   final List<String> _categories = ["food", "transport", "shopping", "bills", "other"];
   final Map<String, Color> _categoryColors = {
     "food": Colors.orange,
@@ -33,13 +35,17 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   String _currencySymbol = "Rp";
   String _currencyCode = "IDR";
 
+  // Filter per bulan
+  int _filterMonth = DateTime.now().month;
+  int _filterYear = DateTime.now().year;
+
   @override
   void initState() {
     super.initState();
     _loadSettings();
     _loadExpenses();
 
-    // ✅ Set default tanggal = hari ini
+    // Default tanggal = hari ini
     _selectedDate = DateTime.now();
   }
 
@@ -59,14 +65,22 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     final data = await DatabaseHelper.instance.getExpenses();
     setState(() {
       _expenseList = data;
+      _applyMonthFilter();
     });
+  }
+
+  void _applyMonthFilter() {
+    _filteredExpenseList = _expenseList.where((expense) {
+      final date = DateTime.parse(expense["date"]);
+      return date.month == _filterMonth && date.year == _filterYear;
+    }).toList();
   }
 
   void _pickDate() async {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDate ?? now, // ✅ default hari ini atau tanggal terakhir dipilih
+      initialDate: _selectedDate ?? now,
       firstDate: DateTime(now.year - 5),
       lastDate: DateTime(now.year + 5),
     );
@@ -110,9 +124,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       _amountController.clear();
       _noteController.clear();
       _selectedCategory = null;
-      _selectedDate = DateTime.now(); // ✅ reset kembali ke tanggal hari ini
+      _selectedDate = DateTime.now();
 
-      _loadExpenses();
+      await _loadExpenses();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -125,7 +139,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
 
   Future<void> _deleteExpense(int id) async {
     await DatabaseHelper.instance.deleteExpense(id);
-    _loadExpenses();
+    await _loadExpenses();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(tr("data_deleted"))),
     );
@@ -206,7 +220,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                 "date": editDate.toIso8601String(),
               });
               Navigator.pop(context);
-              _loadExpenses();
+              await _loadExpenses();
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(tr("data_updated"))),
               );
@@ -223,41 +237,15 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     IconData? icon,
     TextInputType keyboardType = TextInputType.text,
   }) {
-    return Focus(
-      child: Builder(
-        builder: (context) {
-          final bool isFocused = Focus.of(context).hasFocus;
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: isFocused ? 10 : 4,
-                  offset: Offset(0, isFocused ? 6 : 3),
-                ),
-              ],
-            ),
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: TextFormField(
-                controller: controller,
-                keyboardType: keyboardType,
-                validator: (value) =>
-                    value == null || value.isEmpty ? "${tr("enter")} $label" : null,
-                decoration: InputDecoration(
-                  labelText: label,
-                  prefixIcon: icon != null ? Icon(icon, color: Colors.redAccent) : null,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
-            ),
-          );
-        },
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      validator: (value) =>
+          value == null || value.isEmpty ? "${tr("enter")} $label" : null,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: icon != null ? Icon(icon, color: Colors.redAccent) : null,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
@@ -334,7 +322,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                       child: Text(DateFormat("dd/MM/yyyy", context.locale.toString())
-                          .format(_selectedDate!)), // ✅ default hari ini
+                          .format(_selectedDate!)),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -358,6 +346,43 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
               ),
             ),
             const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButton<int>(
+                    value: _filterMonth,
+                    items: List.generate(12, (i) {
+                      final month = i + 1;
+                      return DropdownMenuItem(
+                        value: month,
+                        child: Text(DateFormat.MMMM().format(DateTime(0, month))),
+                      );
+                    }),
+                    onChanged: (val) {
+                      setState(() {
+                        _filterMonth = val ?? _filterMonth;
+                        _applyMonthFilter();
+                      });
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: DropdownButton<int>(
+                    value: _filterYear,
+                    items: List.generate(5, (i) => DateTime.now().year - 2 + i)
+                        .map((y) => DropdownMenuItem(value: y, child: Text(y.toString())))
+                        .toList(),
+                    onChanged: (val) {
+                      setState(() {
+                        _filterYear = val ?? _filterYear;
+                        _applyMonthFilter();
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             const Divider(),
             const SizedBox(height: 10),
             Text(tr("expense_list"),
@@ -380,7 +405,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                       .format(value);
                 }
 
-                return _expenseList.isEmpty
+                return _filteredExpenseList.isEmpty
                     ? Center(child: Text(tr("no_data")))
                     : SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
@@ -397,7 +422,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                             DataColumn(label: Text(tr("note"))),
                             DataColumn(label: Text(tr("action"))),
                           ],
-                          rows: _expenseList.map((expense) {
+                          rows: _filteredExpenseList.map((expense) {
                             final date = DateTime.parse(expense["date"]);
                             final color =
                                 _categoryColors[expense["category"]] ?? Colors.grey;

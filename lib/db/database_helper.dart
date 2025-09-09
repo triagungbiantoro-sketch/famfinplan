@@ -27,7 +27,7 @@ class DatabaseHelper {
     final path = await databasePath;
     return await openDatabase(
       path,
-      version: 6,
+      version: 9, // versi terbaru
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -83,6 +83,7 @@ class DatabaseHelper {
         taxDate TEXT NOT NULL,
         lastOilKm INTEGER NOT NULL,
         oilUsageMonths INTEGER NOT NULL,
+        lastOilChangeDate TEXT,
         nextOilDate TEXT
       )
     ''');
@@ -90,14 +91,28 @@ class DatabaseHelper {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 4) {
-      await db.execute('ALTER TABLE budget ADD COLUMN monthYear TEXT DEFAULT ""');
-      await db.execute('ALTER TABLE budget_usage ADD COLUMN monthYear TEXT DEFAULT ""');
+      await _addColumnIfNotExists(db, 'budget', 'monthYear', 'TEXT DEFAULT ""');
+      await _addColumnIfNotExists(db, 'budget_usage', 'monthYear', 'TEXT DEFAULT ""');
     }
     if (oldVersion < 5) {
-      await db.execute('ALTER TABLE budget_usage ADD COLUMN realized INTEGER DEFAULT 0');
+      await _addColumnIfNotExists(db, 'budget_usage', 'realized', 'INTEGER DEFAULT 0');
     }
     if (oldVersion < 6) {
-      await db.execute('ALTER TABLE budget_usage ADD COLUMN notify_at TEXT');
+      await _addColumnIfNotExists(db, 'budget_usage', 'notify_at', 'TEXT');
+    }
+    if (oldVersion < 7) {
+      await _addColumnIfNotExists(db, 'vehicles', 'lastOilChangeDate', 'TEXT');
+    }
+    if (oldVersion < 8) {
+      await _addColumnIfNotExists(db, 'vehicles', 'nextOilDate', 'TEXT');
+    }
+  }
+
+  Future<void> _addColumnIfNotExists(Database db, String table, String column, String type) async {
+    final result = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = result.any((col) => col['name'] == column);
+    if (!exists) {
+      await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
     }
   }
 
@@ -192,8 +207,7 @@ class DatabaseHelper {
 
   Future<int> updateIncome(int id, Map<String, dynamic> row) async {
     final db = await database;
-    final result =
-        await db.update('income', row, where: 'id = ?', whereArgs: [id]);
+    final result = await db.update('income', row, where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
@@ -229,16 +243,14 @@ class DatabaseHelper {
 
   Future<int> updateExpense(int id, Map<String, dynamic> row) async {
     final db = await database;
-    final result =
-        await db.update('expense', row, where: 'id = ?', whereArgs: [id]);
+    final result = await db.update('expense', row, where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
 
   Future<int> deleteExpense(int id) async {
     final db = await database;
-    final result =
-        await db.delete('expense', where: 'id = ?', whereArgs: [id]);
+    final result = await db.delete('expense', where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
@@ -247,8 +259,7 @@ class DatabaseHelper {
   Future<Map<String, dynamic>?> getBudget({DateTime? month}) async {
     final db = await database;
     final m = _formatMonth(month ?? DateTime.now());
-    final res =
-        await db.query('budget', where: 'monthYear = ?', whereArgs: [m]);
+    final res = await db.query('budget', where: 'monthYear = ?', whereArgs: [m]);
     if (res.isNotEmpty) return res.first;
 
     final id = await db.insert('budget', {
@@ -303,16 +314,14 @@ class DatabaseHelper {
 
   Future<int> updateVehicle(int id, Map<String, dynamic> row) async {
     final db = await database;
-    final result =
-        await db.update('vehicles', row, where: 'id = ?', whereArgs: [id]);
+    final result = await db.update('vehicles', row, where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
 
   Future<int> deleteVehicle(int id) async {
     final db = await database;
-    final result =
-        await db.delete('vehicles', where: 'id = ?', whereArgs: [id]);
+    final result = await db.delete('vehicles', where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
     return result;
   }
@@ -378,8 +387,7 @@ class DatabaseHelper {
 
   Future<void> deleteBudgetUsage(int id, {DateTime? month}) async {
     final db = await database;
-    final usage =
-        await db.query('budget_usage', where: 'id = ?', whereArgs: [id]);
+    final usage = await db.query('budget_usage', where: 'id = ?', whereArgs: [id]);
     if (usage.isEmpty) return;
 
     final amount = (usage.first['amount'] as num).toDouble();
