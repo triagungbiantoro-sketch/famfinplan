@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
 import '../db/database_helper.dart';
+import 'settings_notifier.dart';
 
 class IncomeScreen extends StatefulWidget {
   const IncomeScreen({super.key});
@@ -248,8 +249,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
     return DropdownButtonFormField<String>(
       value: value,
       items: items
-          .map((cat) => DropdownMenuItem(
-              value: cat, child: Text(tr(cat))))
+          .map((cat) => DropdownMenuItem(value: cat, child: Text(tr(cat))))
           .toList(),
       onChanged: onChanged,
       validator: (val) => val == null ? "${tr("choose")} $label" : null,
@@ -399,79 +399,85 @@ class _IncomeScreenState extends State<IncomeScreen> {
               ],
             ),
             const SizedBox(height: 10),
-            _filteredIncomeList.isEmpty
-                ? Center(child: Text(tr("no_data")))
-                : Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        headingRowColor: MaterialStateProperty.resolveWith(
-                            (states) => Colors.blueGrey[50]),
-                        headingTextStyle: const TextStyle(
-                            fontWeight: FontWeight.bold, color: Colors.black87),
-                        columnSpacing: 20,
-                        columns: [
-                          DataColumn(label: Text(tr("amount"))),
-                          DataColumn(label: Text(tr("category"))),
-                          DataColumn(label: Text(tr("date"))),
-                          DataColumn(label: Text(tr("note"))),
-                          DataColumn(label: Text(tr("action"))),
-                        ],
-                        rows: _filteredIncomeList.map((income) {
-                          final date = DateTime.parse(income["date"]);
-                          final color =
-                              _categoryColors[income["category"]] ?? Colors.grey;
-                          return DataRow(
-                            cells: [
-                              DataCell(Text(
-                                  NumberFormat.currency(
-                                          locale: context.locale.toString(),
-                                          symbol: "Rp",
-                                          decimalDigits: 0)
-                                      .format(income["amount"]),
-                                  style: const TextStyle(fontWeight: FontWeight.w500))),
-                              DataCell(Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  tr(income["category"]),
-                                  style: TextStyle(
-                                      color: color, fontWeight: FontWeight.bold),
-                                ),
-                              )),
-                              DataCell(
-                                  Text(DateFormat("dd/MM/yyyy", context.locale.toString())
-                                      .format(date))),
-                              DataCell(Text(income["note"] ?? "-")),
-                              DataCell(Row(
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.edit,
-                                        color: Colors.orange),
-                                    onPressed: () => _editIncome(income),
-                                  ),
-                                  IconButton(
-                                    icon:
-                                        const Icon(Icons.delete, color: Colors.red),
-                                    onPressed: () =>
-                                        _deleteIncome(income["id"]),
-                                  ),
-                                ],
-                              )),
+            ValueListenableBuilder<String>(
+              valueListenable: SettingsNotifier.instance.currentCurrency,
+              builder: (context, currencySymbol, child) {
+                return _filteredIncomeList.isEmpty
+                    ? Center(child: Text(tr("no_data")))
+                    : Card(
+                        elevation: 4,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            headingRowColor: MaterialStateProperty.resolveWith(
+                                (states) => Colors.blueGrey[50]),
+                            headingTextStyle: const TextStyle(
+                                fontWeight: FontWeight.bold, color: Colors.black87),
+                            columnSpacing: 20,
+                            columns: [
+                              DataColumn(label: Text(tr("amount"))),
+                              DataColumn(label: Text(tr("category"))),
+                              DataColumn(label: Text(tr("date"))),
+                              DataColumn(label: Text(tr("note"))),
+                              DataColumn(label: Text(tr("action"))),
                             ],
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ),
+                            rows: _filteredIncomeList.map((income) {
+                              final date = DateTime.parse(income["date"]);
+                              final color =
+                                  _categoryColors[income["category"]] ?? Colors.grey;
+                              return DataRow(
+                                cells: [
+                                  DataCell(Text(
+                                    NumberFormat.currency(
+                                            locale: context.locale.toString(),
+                                            symbol: currencySymbol.split(" ")[0],
+                                            decimalDigits: 0)
+                                        .format(income["amount"]),
+                                    style: const TextStyle(fontWeight: FontWeight.w500),
+                                  )),
+                                  DataCell(Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: color.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      tr(income["category"]),
+                                      style: TextStyle(
+                                          color: color, fontWeight: FontWeight.bold),
+                                    ),
+                                  )),
+                                  DataCell(Text(
+                                      DateFormat("dd/MM/yyyy", context.locale.toString())
+                                          .format(date))),
+                                  DataCell(Text(income["note"] ?? "-")),
+                                  DataCell(Row(
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.edit,
+                                            color: Colors.orange),
+                                        onPressed: () => _editIncome(income),
+                                      ),
+                                      IconButton(
+                                        icon:
+                                            const Icon(Icons.delete, color: Colors.red),
+                                        onPressed: () =>
+                                            _deleteIncome(income["id"]),
+                                      ),
+                                    ],
+                                  )),
+                                ],
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      );
+              },
+            ),
           ],
         ),
       ),

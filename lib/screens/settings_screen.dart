@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../db/database_helper.dart';
-import '../main.dart'; // untuk FamFinPlan.restartApp
+import '../main.dart';
+import 'settings_notifier.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -34,22 +34,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    await SettingsNotifier.instance.loadSettings();
     setState(() {
-      selectedCurrency = prefs.getString("currency") ?? "IDR (Rp)";
-      selectedLanguage = prefs.getString("language") ?? "Indonesia";
+      selectedCurrency = SettingsNotifier.instance.currentCurrency.value;
+      selectedLanguage = SettingsNotifier.instance.currentLanguage.value;
     });
   }
 
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("currency", selectedCurrency);
-    await prefs.setString("language", selectedLanguage);
+    await SettingsNotifier.instance.saveSettings(selectedCurrency, selectedLanguage);
 
     // Ganti bahasa
     if (languagesMap.containsKey(selectedLanguage)) {
       await context.setLocale(languagesMap[selectedLanguage]!);
-      FamFinPlan.restartApp(context); // paksa rebuild seluruh app
+      FamFinPlan.restartApp(context);
     }
 
     if (!mounted) return;
@@ -59,7 +57,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _resetDatabase() async {
-    // Dialog input teks untuk konfirmasi mengetik "RESET"
     final controller = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
@@ -95,7 +92,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (confirmed != true) return;
 
-    // Backup database sebelum reset
     final backupPath = await DatabaseHelper.instance.backupDatabase();
     if (!mounted) return;
 
@@ -109,7 +105,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     }
 
-    // Reset database
     await DatabaseHelper.instance.resetDatabase();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -196,14 +191,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
                     onPressed: _resetDatabase,
-                   icon: const Icon(
+                    icon: const Icon(
                       Icons.delete_forever,
-                      color: Colors.white, // icon putih
-                      ),
-                      label: Text(
-                        tr("reset_database"),
-                        style: const TextStyle(color: Colors.white), // teks putih
-                      ),
+                      color: Colors.white,
+                    ),
+                    label: Text(
+                      tr("reset_database"),
+                      style: const TextStyle(color: Colors.white),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),

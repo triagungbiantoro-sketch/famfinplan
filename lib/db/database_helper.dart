@@ -22,7 +22,7 @@ class DatabaseHelper {
     final path = join(dbPath, 'famfinplan.db');
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -64,7 +64,8 @@ class DatabaseHelper {
         amount REAL NOT NULL,
         note TEXT,
         monthYear TEXT NOT NULL,
-        date TEXT NOT NULL
+        date TEXT NOT NULL,
+        realized INTEGER DEFAULT 0
       )
     ''');
 
@@ -85,6 +86,9 @@ class DatabaseHelper {
     if (oldVersion < 4) {
       await db.execute('ALTER TABLE budget ADD COLUMN monthYear TEXT DEFAULT ""');
       await db.execute('ALTER TABLE budget_usage ADD COLUMN monthYear TEXT DEFAULT ""');
+    }
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE budget_usage ADD COLUMN realized INTEGER DEFAULT 0');
     }
   }
 
@@ -244,7 +248,7 @@ class DatabaseHelper {
     final db = await database;
     final now = DateTime.now();
     final m = _formatMonth(month ?? now);
-    await db.insert('budget_usage', {'amount': amount, 'note': note, 'monthYear': m, 'date': now.toIso8601String()});
+    await db.insert('budget_usage', {'amount': amount, 'note': note, 'monthYear': m, 'date': now.toIso8601String(), 'realized': 0});
 
     final budget = await getBudget(month: month);
     if (budget != null) {
@@ -283,6 +287,17 @@ class DatabaseHelper {
       double used = (budget['usedBudget'] ?? 0) - amount;
       await db.update('budget', {'usedBudget': used}, where: 'id = ?', whereArgs: [budget['id']]);
     }
+    dataChanged.value = !dataChanged.value;
+  }
+
+  Future<void> updateBudgetUsageRealized(int id, bool realized, {DateTime? month}) async {
+    final db = await database;
+    await db.update(
+      'budget_usage',
+      {'realized': realized ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     dataChanged.value = !dataChanged.value;
   }
 

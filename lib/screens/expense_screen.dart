@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
 import '../db/database_helper.dart';
+import 'settings_notifier.dart';
 
 class ExpenseScreen extends StatefulWidget {
   const ExpenseScreen({super.key});
@@ -14,18 +15,12 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
+
   String? _selectedCategory;
   DateTime? _selectedDate;
 
-  final List<Map<String, dynamic>> _expenseList = [];
-  final List<String> _categories = [
-    "food",
-    "transport",
-    "shopping",
-    "bills",
-    "other"
-  ];
-
+  List<Map<String, dynamic>> _expenseList = [];
+  final List<String> _categories = ["food", "transport", "shopping", "bills", "other"];
   final Map<String, Color> _categoryColors = {
     "food": Colors.orange,
     "transport": Colors.blue,
@@ -34,25 +29,33 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     "other": Colors.grey,
   };
 
+  // Currency
+  String _currencySymbol = "Rp";
+  String _currencyCode = "IDR";
+
   @override
   void initState() {
     super.initState();
+    _loadSettings();
     _loadExpenses();
   }
 
-  @override
-  void dispose() {
-    _amountController.dispose();
-    _noteController.dispose();
-    super.dispose();
+  void _loadSettings() {
+    SettingsNotifier.instance.currentCurrency.addListener(() {
+      final value = SettingsNotifier.instance.currentCurrency.value;
+      final parts = value.split(" ");
+      setState(() {
+        _currencyCode = parts[0];
+        _currencySymbol =
+            parts.length > 1 ? parts[1].replaceAll("(", "").replaceAll(")", "") : _currencyCode;
+      });
+    });
   }
 
   Future<void> _loadExpenses() async {
     final data = await DatabaseHelper.instance.getExpenses();
     setState(() {
-      _expenseList
-        ..clear()
-        ..addAll(data);
+      _expenseList = data;
     });
   }
 
@@ -64,9 +67,23 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       firstDate: DateTime(now.year - 5),
       lastDate: DateTime(now.year + 5),
     );
-    if (picked != null) {
-      setState(() => _selectedDate = picked);
-    }
+    if (picked != null) setState(() => _selectedDate = picked);
+  }
+
+  String _formatCurrency(double value) {
+    final locale = _currencyCode == "IDR" ? "id_ID" : "en_US";
+    final decimalDigits = _currencyCode == "IDR" ? 0 : 2;
+    return NumberFormat.currency(
+      locale: locale,
+      symbol: _currencySymbol,
+      decimalDigits: decimalDigits,
+    ).format(value);
+  }
+
+  double _parseCurrency(String input) {
+    // Hapus semua simbol & separator sebelum convert ke double
+    final cleaned = input.replaceAll(RegExp(r'[^\d.]'), '');
+    return double.tryParse(cleaned) ?? 0;
   }
 
   Future<void> _saveExpense() async {
@@ -78,7 +95,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
         return;
       }
 
-      final amount = int.parse(_amountController.text.replaceAll('.', ''));
+      final amount = _parseCurrency(_amountController.text);
       final note = _noteController.text;
 
       await DatabaseHelper.instance.insertExpense({
@@ -88,25 +105,19 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
         "date": _selectedDate!.toIso8601String(),
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(tr("expense_saved",
-              args: [
-                NumberFormat.currency(
-                        locale: context.locale.toString(),
-                        symbol: "Rp",
-                        decimalDigits: 0)
-                    .format(amount),
-                tr(_selectedCategory!)
-              ])),
-        ),
-      );
-
       _amountController.clear();
       _noteController.clear();
       _selectedCategory = null;
       _selectedDate = null;
+
       _loadExpenses();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              tr("expense_saved", args: [_formatCurrency(amount), tr(_selectedCategory!)])),
+        ),
+      );
     }
   }
 
@@ -120,9 +131,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
 
   Future<void> _editExpense(Map<String, dynamic> expense) async {
     final editAmountController =
-        TextEditingController(text: expense["amount"].toString());
-    final editNoteController =
-        TextEditingController(text: expense["note"] ?? "");
+        TextEditingController(text: _formatCurrency((expense["amount"] as num).toDouble()));
+    final editNoteController = TextEditingController(text: expense["note"] ?? "");
     String? editCategory = expense["category"];
     DateTime editDate = DateTime.parse(expense["date"]);
 
@@ -156,14 +166,13 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                     firstDate: DateTime(2000),
                     lastDate: DateTime(2100),
                   );
-                  if (picked != null) editDate = picked;
+                  if (picked != null) setState(() => editDate = picked);
                 },
                 child: InputDecorator(
                   decoration: InputDecoration(
                     labelText: tr("date"),
                     prefixIcon: const Icon(Icons.calendar_today),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: Text(DateFormat("dd/MM/yyyy", context.locale.toString())
                       .format(editDate)),
@@ -187,8 +196,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             child: Text(tr("save"), style: const TextStyle(color: Colors.white)),
             onPressed: () async {
+              final updatedAmount = _parseCurrency(editAmountController.text);
               await DatabaseHelper.instance.updateExpense(expense["id"], {
-                "amount": int.tryParse(editAmountController.text) ?? 0,
+                "amount": updatedAmount,
                 "category": editCategory ?? "other",
                 "note": editNoteController.text,
                 "date": editDate.toIso8601String(),
@@ -210,45 +220,45 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     required String label,
     IconData? icon,
     TextInputType keyboardType = TextInputType.text,
-  }) =>
-      Focus(
-        child: Builder(
-          builder: (context) {
-            final isFocused = Focus.of(context).hasFocus;
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeInOut,
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: isFocused ? 10 : 4,
-                        offset: Offset(0, isFocused ? 6 : 3))
-                  ]),
-              child: Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                child: TextFormField(
-                  controller: controller,
-                  keyboardType: keyboardType,
-                  validator: (val) =>
-                      val == null || val.isEmpty ? "${tr("enter")} $label" : null,
-                  decoration: InputDecoration(
-                    labelText: label,
-                    prefixIcon:
-                        icon != null ? Icon(icon, color: Colors.redAccent) : null,
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16)),
-                  ),
+  }) {
+    return Focus(
+      child: Builder(
+        builder: (context) {
+          final bool isFocused = Focus.of(context).hasFocus;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: isFocused ? 10 : 4,
+                  offset: Offset(0, isFocused ? 6 : 3),
+                ),
+              ],
+            ),
+            child: Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: TextFormField(
+                controller: controller,
+                keyboardType: keyboardType,
+                validator: (value) =>
+                    value == null || value.isEmpty ? "${tr("enter")} $label" : null,
+                decoration: InputDecoration(
+                  labelText: label,
+                  prefixIcon: icon != null ? Icon(icon, color: Colors.redAccent) : null,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                 ),
               ),
-            );
-          },
-        ),
-      );
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   Widget _buildFancyDropdown({
     required String label,
@@ -256,27 +266,37 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     required String? value,
     required void Function(String?) onChanged,
     IconData? icon,
-  }) =>
-      DropdownButtonFormField<String>(
-        value: value,
-        items: items
-            .map((cat) => DropdownMenuItem(value: cat, child: Text(tr(cat))))
-            .toList(),
-        onChanged: onChanged,
-        validator: (val) => val == null ? "${tr("choose")} $label" : null,
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: icon != null ? Icon(icon, color: Colors.redAccent) : null,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-        ),
-      );
+  }) {
+    return DropdownButtonFormField<String>(
+      value: value,
+      items: items
+          .map((cat) => DropdownMenuItem(value: cat, child: Text(tr(cat))))
+          .toList(),
+      onChanged: onChanged,
+      validator: (val) => val == null ? "${tr("choose")} $label" : null,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: icon != null ? Icon(icon, color: Colors.redAccent) : null,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: Text(tr("add_expense"), style: const TextStyle(color: Colors.white)),
         backgroundColor: Colors.redAccent,
+        title: Text(tr("add_expense"), style: const TextStyle(color: Colors.white)),
+        centerTitle: true,
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.only(
@@ -309,8 +329,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                       decoration: InputDecoration(
                         labelText: tr("date"),
                         prefixIcon: const Icon(Icons.calendar_today),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16)),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                       child: Text(_selectedDate == null
                           ? tr("pick_date")
@@ -331,8 +350,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.redAccent,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                   ),
@@ -345,71 +363,83 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
             Text(tr("expense_list"),
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            SizedBox(
-              height: 300,
-              child: _expenseList.isEmpty
-                  ? Center(child: Text(tr("no_data")))
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        headingRowColor: MaterialStateProperty.resolveWith(
-                            (states) => Colors.blueGrey[50]),
-                        headingTextStyle: const TextStyle(
-                            fontWeight: FontWeight.bold, color: Colors.black87),
-                        columnSpacing: 20,
-                        columns: [
-                          DataColumn(label: Text(tr("amount"))),
-                          DataColumn(label: Text(tr("category"))),
-                          DataColumn(label: Text(tr("date"))),
-                          DataColumn(label: Text(tr("note"))),
-                          DataColumn(label: Text(tr("action"))),
-                        ],
-                        rows: _expenseList.map((expense) {
-                          final date = DateTime.parse(expense["date"]);
-                          final color =
-                              _categoryColors[expense["category"]] ?? Colors.grey;
+            ValueListenableBuilder<String>(
+              valueListenable: SettingsNotifier.instance.currentCurrency,
+              builder: (context, currencyValue, child) {
+                final parts = currencyValue.split(" ");
+                final currencyCode = parts[0];
+                final currencySymbol = parts.length > 1
+                    ? parts[1].replaceAll("(", "").replaceAll(")", "")
+                    : currencyCode;
 
-                          return DataRow(
-                            cells: [
-                              DataCell(Text(
-                                NumberFormat.currency(
-                                        locale: context.locale.toString(),
-                                        symbol: "Rp",
-                                        decimalDigits: 0)
-                                    .format(expense["amount"]),
-                                style:
-                                    const TextStyle(fontWeight: FontWeight.w500),
-                              )),
-                              DataCell(Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  tr(expense["category"] ?? ""),
-                                  style: TextStyle(
-                                      color: color, fontWeight: FontWeight.bold),
-                                ),
-                              )),
-                              DataCell(Text(DateFormat("dd/MM/yyyy", context.locale.toString()).format(date))),
-                              DataCell(Text(expense["note"] ?? "")),
-                              DataCell(Row(
-                                children: [
-                                  IconButton(
-                                      icon: const Icon(Icons.edit, color: Colors.orange),
-                                      onPressed: () => _editExpense(expense)),
-                                  IconButton(
-                                      icon: const Icon(Icons.delete, color: Colors.red),
-                                      onPressed: () => _deleteExpense(expense["id"])),
-                                ],
-                              )),
-                            ],
-                          );
-                        }).toList(),
-                      ),
-                    ),
+                String formatCurrency(double value) {
+                  final locale = currencyCode == "IDR" ? "id_ID" : "en_US";
+                  final decimalDigits = currencyCode == "IDR" ? 0 : 2;
+                  return NumberFormat.currency(
+                          locale: locale, symbol: currencySymbol, decimalDigits: decimalDigits)
+                      .format(value);
+                }
+
+                return _expenseList.isEmpty
+                    ? Center(child: Text(tr("no_data")))
+                    : SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          headingRowColor: MaterialStateProperty.resolveWith(
+                              (states) => Colors.blueGrey[50]),
+                          headingTextStyle: const TextStyle(
+                              fontWeight: FontWeight.bold, color: Colors.black87),
+                          columnSpacing: 20,
+                          columns: [
+                            DataColumn(label: Text(tr("amount"))),
+                            DataColumn(label: Text(tr("category"))),
+                            DataColumn(label: Text(tr("date"))),
+                            DataColumn(label: Text(tr("note"))),
+                            DataColumn(label: Text(tr("action"))),
+                          ],
+                          rows: _expenseList.map((expense) {
+                            final date = DateTime.parse(expense["date"]);
+                            final color =
+                                _categoryColors[expense["category"]] ?? Colors.grey;
+
+                            return DataRow(
+                              cells: [
+                                DataCell(Text(
+                                  formatCurrency((expense["amount"] as num).toDouble()),
+                                  style: const TextStyle(fontWeight: FontWeight.w500),
+                                )),
+                                DataCell(Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: color.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    tr(expense["category"] ?? ""),
+                                    style: TextStyle(
+                                        color: color, fontWeight: FontWeight.bold),
+                                  ),
+                                )),
+                                DataCell(Text(DateFormat("dd/MM/yyyy", context.locale.toString())
+                                    .format(date))),
+                                DataCell(Text(expense["note"] ?? "-")),
+                                DataCell(Row(
+                                  children: [
+                                    IconButton(
+                                        icon: const Icon(Icons.edit, color: Colors.orange),
+                                        onPressed: () => _editExpense(expense)),
+                                    IconButton(
+                                        icon: const Icon(Icons.delete, color: Colors.red),
+                                        onPressed: () => _deleteExpense(expense["id"])),
+                                  ],
+                                )),
+                              ],
+                            );
+                          }).toList(),
+                        ),
+                      );
+              },
             ),
           ],
         ),

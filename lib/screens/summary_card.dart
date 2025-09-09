@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
 import '../db/database_helper.dart';
+import 'settings_notifier.dart';
 
 class SummaryCard extends StatefulWidget {
   final int selectedMonth;
@@ -25,9 +26,16 @@ class _SummaryCardState extends State<SummaryCard> {
   double totalIncome = 0;
   double totalExpense = 0;
 
+  String _currencySymbol = "Rp";
+  String _currencyCode = "IDR";
+
+  // closure untuk listener agar bisa removeListener
+  late VoidCallback _currencyListener;
+
   @override
   void initState() {
     super.initState();
+    _initSettings();
     _loadSummary();
     DatabaseHelper.instance.dataChanged.addListener(_loadSummary);
   }
@@ -35,22 +43,32 @@ class _SummaryCardState extends State<SummaryCard> {
   @override
   void dispose() {
     DatabaseHelper.instance.dataChanged.removeListener(_loadSummary);
+    SettingsNotifier.instance.currentCurrency.removeListener(_currencyListener);
     super.dispose();
   }
 
-  @override
-  void didUpdateWidget(covariant SummaryCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedMonth != widget.selectedMonth ||
-        oldWidget.selectedYear != widget.selectedYear) {
-      _loadSummary();
-    }
+  void _initSettings() async {
+    await SettingsNotifier.instance.loadSettings();
+    _updateCurrency(SettingsNotifier.instance.currentCurrency.value);
+
+    _currencyListener = () {
+      _updateCurrency(SettingsNotifier.instance.currentCurrency.value);
+    };
+
+    SettingsNotifier.instance.currentCurrency.addListener(_currencyListener);
+  }
+
+  void _updateCurrency(String value) {
+    if (!mounted) return;
+    setState(() {
+      _currencyCode = value.split(" ")[0];
+      _currencySymbol = value.split(" ")[1].replaceAll("(", "").replaceAll(")", "");
+    });
   }
 
   Future<void> _loadSummary() async {
     final month = widget.selectedMonth;
     final year = widget.selectedYear;
-
     final db = DatabaseHelper.instance;
 
     final incomeList = await db.getIncomes();
@@ -82,12 +100,12 @@ class _SummaryCardState extends State<SummaryCard> {
   }
 
   String formatCurrency(double value) {
-    final formatter = NumberFormat.currency(
-      locale: context.locale.toString(),
-      symbol: context.locale.languageCode == 'id' ? 'Rp' : '\$',
+    final locale = _currencyCode == "IDR" ? "id_ID" : "en_US";
+    return NumberFormat.currency(
+      locale: locale,
+      symbol: _currencySymbol,
       decimalDigits: 0,
-    );
-    return formatter.format(value);
+    ).format(value);
   }
 
   @override
