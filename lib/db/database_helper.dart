@@ -32,7 +32,7 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE income (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        amount INTEGER NOT NULL,
+        amount REAL NOT NULL,
         category TEXT,
         note TEXT,
         date TEXT NOT NULL
@@ -42,7 +42,7 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE expense (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        amount INTEGER NOT NULL,
+        amount REAL NOT NULL,
         category TEXT,
         note TEXT,
         date TEXT NOT NULL
@@ -135,6 +135,15 @@ class DatabaseHelper {
     return await db.query('income', orderBy: "date DESC");
   }
 
+  Future<List<Map<String, dynamic>>> getIncomesByMonthYear(int month, int year) async {
+    final db = await database;
+    final all = await db.query('income', orderBy: "date DESC");
+    return all.where((inc) {
+      final date = _parseDate(inc['date']);
+      return date.month == month && date.year == year;
+    }).toList();
+  }
+
   Future<int> updateIncome(int id, Map<String, dynamic> row) async {
     final db = await database;
     final result = await db.update('income', row, where: 'id = ?', whereArgs: [id]);
@@ -160,6 +169,15 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getExpenses() async {
     final db = await database;
     return await db.query('expense', orderBy: "date DESC");
+  }
+
+  Future<List<Map<String, dynamic>>> getExpensesByMonthYear(int month, int year) async {
+    final db = await database;
+    final all = await db.query('expense', orderBy: "date DESC");
+    return all.where((exp) {
+      final date = _parseDate(exp['date']);
+      return date.month == month && date.year == year;
+    }).toList();
   }
 
   Future<int> updateExpense(int id, Map<String, dynamic> row) async {
@@ -263,7 +281,7 @@ class DatabaseHelper {
     final old = await db.query('budget_usage', where: 'id = ?', whereArgs: [id]);
     if (old.isEmpty) return;
 
-    final oldAmount = old.first['amount'] as double;
+    final oldAmount = old.first['amount'] is int ? (old.first['amount'] as int).toDouble() : old.first['amount'] as double;
     await db.update('budget_usage', {'amount': newAmount, 'note': note}, where: 'id = ?', whereArgs: [id]);
 
     final budget = await getBudget(month: month);
@@ -279,7 +297,7 @@ class DatabaseHelper {
     final usage = await db.query('budget_usage', where: 'id = ?', whereArgs: [id]);
     if (usage.isEmpty) return;
 
-    final amount = usage.first['amount'] as double;
+    final amount = usage.first['amount'] is int ? (usage.first['amount'] as int).toDouble() : usage.first['amount'] as double;
     await db.delete('budget_usage', where: 'id = ?', whereArgs: [id]);
 
     final budget = await getBudget(month: month);
@@ -301,5 +319,37 @@ class DatabaseHelper {
     dataChanged.value = !dataChanged.value;
   }
 
+  // -------------------- SUMMARY --------------------
+  Future<Map<String, double>> getMonthlySummary(int month, int year) async {
+    final incomes = await getIncomesByMonthYear(month, year);
+    final expenses = await getExpensesByMonthYear(month, year);
+
+    double totalIncome = 0.0;
+    double totalExpense = 0.0;
+
+    for (var inc in incomes) {
+      final amt = inc['amount'];
+      if (amt is int) totalIncome += amt.toDouble();
+      if (amt is double) totalIncome += amt;
+    }
+
+    for (var exp in expenses) {
+      final amt = exp['amount'];
+      if (amt is int) totalExpense += amt.toDouble();
+      if (amt is double) totalExpense += amt;
+    }
+
+    return {
+      'income': totalIncome,
+      'expense': totalExpense,
+    };
+  }
+
+  // -------------------- HELPER --------------------
   String _formatMonth(DateTime date) => DateFormat('yyyy-MM').format(date);
+
+  DateTime _parseDate(Object? value) {
+    if (value == null) throw FormatException("Date value is null");
+    return DateTime.parse(value as String);
+  }
 }

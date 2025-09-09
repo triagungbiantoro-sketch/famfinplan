@@ -29,7 +29,6 @@ class _SummaryCardState extends State<SummaryCard> {
   String _currencySymbol = "Rp";
   String _currencyCode = "IDR";
 
-  // closure untuk listener agar bisa removeListener
   late VoidCallback _currencyListener;
 
   @override
@@ -45,6 +44,15 @@ class _SummaryCardState extends State<SummaryCard> {
     DatabaseHelper.instance.dataChanged.removeListener(_loadSummary);
     SettingsNotifier.instance.currentCurrency.removeListener(_currencyListener);
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant SummaryCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedMonth != widget.selectedMonth ||
+        oldWidget.selectedYear != widget.selectedYear) {
+      _loadSummary();
+    }
   }
 
   void _initSettings() async {
@@ -69,33 +77,14 @@ class _SummaryCardState extends State<SummaryCard> {
   Future<void> _loadSummary() async {
     final month = widget.selectedMonth;
     final year = widget.selectedYear;
-    final db = DatabaseHelper.instance;
 
-    final incomeList = await db.getIncomes();
-    final expenseList = await db.getExpenses();
-
-    double monthIncome = 0;
-    double monthExpense = 0;
-
-    for (var inc in incomeList) {
-      final date = DateTime.parse(inc['date']);
-      if (date.month == month && date.year == year) {
-        monthIncome += (inc['amount'] as num).toDouble();
-      }
-    }
-
-    for (var exp in expenseList) {
-      final date = DateTime.parse(exp['date']);
-      if (date.month == month && date.year == year) {
-        monthExpense += (exp['amount'] as num).toDouble();
-      }
-    }
+    final summary = await DatabaseHelper.instance.getMonthlySummary(month, year);
 
     if (!mounted) return;
 
     setState(() {
-      totalIncome = monthIncome;
-      totalExpense = monthExpense;
+      totalIncome = summary['income'] ?? 0.0;
+      totalExpense = summary['expense'] ?? 0.0;
     });
   }
 
@@ -174,28 +163,26 @@ class _SummaryCardState extends State<SummaryCard> {
               ),
               const SizedBox(height: 20),
 
-              // Ringkasan isi (scrollable horizontal)
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _buildSummaryItem(
-                      icon: Icons.arrow_downward,
-                      label: tr("income"),
-                      amount: totalIncome,
-                    ),
-                    _buildSummaryItem(
-                      icon: Icons.arrow_upward,
-                      label: tr("expense"),
-                      amount: totalExpense,
-                    ),
-                    _buildSummaryItem(
-                      icon: Icons.account_balance,
-                      label: tr("net_balance"),
-                      amount: remainingBudget,
-                    ),
-                  ],
-                ),
+              // Ringkasan isi (tanpa scroll horizontal, pakai Expanded)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildSummaryItem(
+                    icon: Icons.arrow_downward,
+                    label: tr("income"),
+                    amount: totalIncome,
+                  ),
+                  _buildSummaryItem(
+                    icon: Icons.arrow_upward,
+                    label: tr("expense"),
+                    amount: totalExpense,
+                  ),
+                  _buildSummaryItem(
+                    icon: Icons.account_balance,
+                    label: tr("net_balance"),
+                    amount: remainingBudget,
+                  ),
+                ],
               ),
             ],
           ),
@@ -209,9 +196,7 @@ class _SummaryCardState extends State<SummaryCard> {
     required String label,
     required double amount,
   }) {
-    return Container(
-      width: 120,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
+    return Expanded(
       child: Column(
         children: [
           CircleAvatar(
@@ -226,11 +211,13 @@ class _SummaryCardState extends State<SummaryCard> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 6),
-          Text(
-            formatCurrency(amount),
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
-            textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              formatCurrency(amount),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+              textAlign: TextAlign.center,
+            ),
           ),
         ],
       ),
