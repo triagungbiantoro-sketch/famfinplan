@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:famfinplan/db/database_helper.dart';
 import 'package:famfinplan/screens/settings_notifier.dart';
+import 'package:share_plus/share_plus.dart';
 
 class BudgetingScreen extends StatefulWidget {
   const BudgetingScreen({super.key});
@@ -216,8 +217,7 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                         await _loadBudget();
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                              content: Text(tr("usage_updated", args: [_formatCurrency(newAmount), newNote]))),
+                          SnackBar(content: Text(tr("usage_updated", args: [_formatCurrency(newAmount), newNote]))),
                         );
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -311,6 +311,24 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
     return Colors.red;
   }
 
+  Future<void> _shareBudgetSummary() async {
+    final buffer = StringBuffer();
+    buffer.writeln("${tr("monthly_budget_summary")}: ${DateFormat.yMMM().format(_selectedMonth)}");
+    buffer.writeln("${tr("total_budget")}: ${_formatCurrency(_totalBudget)}");
+    buffer.writeln("${tr("used")}: ${_formatCurrency(_usedBudget)}");
+    buffer.writeln("${tr("remaining")}: ${_formatCurrency(_totalBudget - _usedBudget)}");
+    buffer.writeln("\n${tr("usage_list")}:");
+    for (var usage in _usageList) {
+      final dateText = usage['notify_at'] != null
+          ? DateFormat("dd/MM/yyyy HH:mm").format(DateTime.parse(usage['notify_at']))
+          : "-";
+      buffer.writeln(
+          "${_formatCurrency((usage['amount'] as num).toDouble())} - ${usage['note'] ?? ""} ($dateText)");
+    }
+
+    await Share.share(buffer.toString());
+  }
+
   @override
   Widget build(BuildContext context) {
     final double remaining = _totalBudget - _usedBudget;
@@ -400,15 +418,12 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Leading icon
                               CircleAvatar(
                                 radius: 24,
                                 backgroundColor: Colors.redAccent.withOpacity(0.2),
                                 child: const Icon(Icons.money_off, color: Colors.redAccent),
                               ),
                               const SizedBox(width: 12),
-
-                              // Middle content
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -454,10 +469,7 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                                   ],
                                 ),
                               ),
-
                               const SizedBox(width: 8),
-
-                              // Trailing buttons
                               Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -487,10 +499,27 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddUsageSheet(),
-        backgroundColor: Colors.redAccent,
-        child: const Icon(Icons.add, color: Colors.white),
+      floatingActionButton: Stack(
+        children: [
+          Align(
+            alignment: Alignment.bottomRight,
+            child: FloatingActionButton(
+              heroTag: "addUsage",
+              onPressed: () => _showAddUsageSheet(),
+              backgroundColor: Colors.redAccent,
+              child: const Icon(Icons.add, color: Colors.white),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomLeft,
+            child: FloatingActionButton(
+              heroTag: "shareBudget",
+              onPressed: _shareBudgetSummary,
+              backgroundColor: Colors.green,
+              child: const Icon(Icons.share, color: Colors.white),
+            ),
+          ),
+        ],
       ),
     );
   }

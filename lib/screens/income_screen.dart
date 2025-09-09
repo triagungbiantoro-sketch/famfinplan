@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
 import '../db/database_helper.dart';
 import 'settings_notifier.dart';
+import '../services/export_service.dart';
 
 class IncomeScreen extends StatefulWidget {
   const IncomeScreen({super.key});
@@ -49,8 +50,9 @@ class _IncomeScreenState extends State<IncomeScreen> {
       final parts = value.split(" ");
       setState(() {
         _currencyCode = parts[0];
-        _currencySymbol =
-            parts.length > 1 ? parts[1].replaceAll("(", "").replaceAll(")", "") : _currencyCode;
+        _currencySymbol = parts.length > 1
+            ? parts[1].replaceAll("(", "").replaceAll(")", "")
+            : _currencyCode;
       });
     });
   }
@@ -275,7 +277,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
                   icon: Icons.category,
                 ),
                 const SizedBox(height: 12),
-                // Tanggal pakai date picker
                 InkWell(
                   onTap: () async {
                     final picked = await showDatePicker(
@@ -330,6 +331,18 @@ class _IncomeScreenState extends State<IncomeScreen> {
     );
   }
 
+  Future<void> _sharePDF() async {
+    final path = await ExportService.exportIncomePDF(
+        month: _selectedMonth, year: _selectedYear);
+    await ExportService.shareFile(path, text: tr("share_income_pdf"));
+  }
+
+  Future<void> _shareExcel() async {
+    final path = await ExportService.exportIncomeExcel(
+        month: _selectedMonth, year: _selectedYear);
+    await ExportService.shareFile(path, text: tr("share_income_excel"));
+  }
+
   @override
   void dispose() {
     _amountController.dispose();
@@ -345,6 +358,18 @@ class _IncomeScreenState extends State<IncomeScreen> {
         backgroundColor: Colors.green,
         title: Text(tr("income"), style: const TextStyle(color: Colors.white)),
         centerTitle: true,
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value == 'pdf') await _sharePDF();
+              if (value == 'excel') await _shareExcel();
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(value: 'pdf', child: Text(tr("share_pdf"))),
+              PopupMenuItem(value: 'excel', child: Text(tr("share_excel"))),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -471,10 +496,47 @@ class _IncomeScreenState extends State<IncomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddIncomeSheet(context),
-        backgroundColor: Colors.green,
-        child: const Icon(Icons.add, color: Colors.white),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton(
+            heroTag: "add_income",
+            onPressed: () => _showAddIncomeSheet(context),
+            backgroundColor: Colors.green,
+            child: const Icon(Icons.add, color: Colors.white),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: "share_income",
+            onPressed: () {
+              showModalBottomSheet(
+                  context: context,
+                  shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                  builder: (context) => Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                              leading: const Icon(Icons.picture_as_pdf),
+                              title: Text(tr("share_pdf")),
+                              onTap: () {
+                                Navigator.pop(context);
+                                _sharePDF();
+                              }),
+                          ListTile(
+                              leading: const Icon(Icons.grid_on),
+                              title: Text(tr("share_excel")),
+                              onTap: () {
+                                Navigator.pop(context);
+                                _shareExcel();
+                              }),
+                        ],
+                      ));
+            },
+            backgroundColor: Colors.blue,
+            child: const Icon(Icons.share, color: Colors.white),
+          ),
+        ],
       ),
     );
   }
