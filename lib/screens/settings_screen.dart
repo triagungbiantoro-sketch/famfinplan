@@ -59,11 +59,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _resetDatabase() async {
+    // Dialog input teks untuk konfirmasi mengetik "RESET"
+    final controller = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(tr("reset_database_title")),
-        content: Text(tr("reset_database_content")),
+        title: Text(tr("type_reset_to_confirm")),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            hintText: tr("type_reset_here"),
+          ),
+        ),
         actions: [
           TextButton(
             child: Text(tr("cancel")),
@@ -71,20 +78,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(tr("delete")),
+            child: Text(tr("confirm")),
+            onPressed: () {
+              if (controller.text.trim().toUpperCase() == "RESET") {
+                Navigator.pop(context, true);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(tr("reset_not_confirmed"))),
+                );
+              }
+            },
           ),
         ],
       ),
     );
 
-    if (confirmed == true) {
-      await DatabaseHelper.instance.resetDatabase();
-      if (!mounted) return;
+    if (confirmed != true) return;
+
+    // Backup database sebelum reset
+    final backupPath = await DatabaseHelper.instance.backupDatabase();
+    if (!mounted) return;
+
+    if (backupPath != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("database_reset_success"))),
+        SnackBar(content: Text(tr("backup_success") + ": $backupPath")),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr("backup_failed"))),
       );
     }
+
+    // Reset database
+    await DatabaseHelper.instance.resetDatabase();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(tr("database_reset_success"))),
+    );
   }
 
   @override
@@ -166,8 +196,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
                     onPressed: _resetDatabase,
-                    icon: const Icon(Icons.delete_forever),
-                    label: Text(tr("reset_database")),
+                   icon: const Icon(
+                      Icons.delete_forever,
+                      color: Colors.white, // icon putih
+                      ),
+                      label: Text(
+                        tr("reset_database"),
+                        style: const TextStyle(color: Colors.white), // teks putih
+                      ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),

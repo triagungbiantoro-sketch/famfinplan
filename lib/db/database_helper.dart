@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -66,6 +67,7 @@ class DatabaseHelper {
         date TEXT NOT NULL
       )
     ''');
+
     await db.execute('''
       CREATE TABLE vehicles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,12 +88,33 @@ class DatabaseHelper {
     }
   }
 
+  /// Backup database ke file lain
+  Future<String?> backupDatabase() async {
+    try {
+      final dbPath = await getDatabasesPath();
+      final dbFile = File(join(dbPath, 'famfinplan.db'));
+      if (!await dbFile.exists()) return null;
+
+      final backupFile = File(join(
+        dbPath,
+        'famfinplan_backup_${DateTime.now().millisecondsSinceEpoch}.db',
+      ));
+      await dbFile.copy(backupFile.path);
+      print('Backup sukses di: ${backupFile.path}');
+      return backupFile.path;
+    } catch (e) {
+      print('Backup gagal: $e');
+      return null;
+    }
+  }
+
+  /// Reset database
   Future<void> resetDatabase() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'famfinplan.db');
     await deleteDatabase(path);
     _database = null;
-    await database;
+    await database; // recreate database kosong
     dataChanged.value = !dataChanged.value;
   }
 
@@ -183,7 +206,7 @@ class DatabaseHelper {
     }
   }
 
-    // -------------------- VEHICLES --------------------
+  // -------------------- VEHICLES --------------------
   Future<int> insertVehicle(Map<String, dynamic> row) async {
     final db = await database;
     final id = await db.insert('vehicles', row);
@@ -209,7 +232,6 @@ class DatabaseHelper {
     dataChanged.value = !dataChanged.value;
     return result;
   }
-
 
   // -------------------- BUDGET USAGE --------------------
   Future<List<Map<String, dynamic>>> getBudgetUsage({DateTime? month}) async {
