@@ -25,6 +25,10 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
   String _currencySymbol = "Rp";
   String _currencyCode = "IDR";
 
+  // Sort state
+  int? _sortColumnIndex;
+  bool _sortAscending = true;
+
   @override
   void initState() {
     super.initState();
@@ -242,6 +246,37 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
     await _loadBudget();
   }
 
+  void _sortUsageList(int columnIndex, bool ascending) {
+    setState(() {
+      _sortColumnIndex = columnIndex;
+      _sortAscending = ascending;
+
+      switch (columnIndex) {
+        case 0: // Amount
+          _usageList.sort((a, b) {
+            final aVal = (a['amount'] as num).toDouble();
+            final bVal = (b['amount'] as num).toDouble();
+            return ascending ? aVal.compareTo(bVal) : bVal.compareTo(aVal);
+          });
+          break;
+        case 1: // Note
+          _usageList.sort((a, b) {
+            final aVal = (a['note'] ?? "").toString();
+            final bVal = (b['note'] ?? "").toString();
+            return ascending ? aVal.compareTo(bVal) : bVal.compareTo(aVal);
+          });
+          break;
+        case 2: // Status
+          _usageList.sort((a, b) {
+            final aVal = (a['realized'] ?? 0) == 1 ? 1 : 0;
+            final bVal = (b['realized'] ?? 0) == 1 ? 1 : 0;
+            return ascending ? aVal.compareTo(bVal) : bVal.compareTo(aVal);
+          });
+          break;
+      }
+    });
+  }
+
   Color _getProgressColor(double progress) {
     if (progress < 0.5) return Colors.green;
     if (progress < 0.8) return Colors.orange;
@@ -390,7 +425,7 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
 
-            // Full Scrollable Usage Table dengan kolom Status + toggle
+            // Full Scrollable Usage Table dengan sort & toggle status
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: ConstrainedBox(
@@ -398,15 +433,30 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.vertical,
                   child: DataTable(
+                    sortColumnIndex: _sortColumnIndex,
+                    sortAscending: _sortAscending,
                     headingRowColor:
                         MaterialStateProperty.resolveWith((states) => Colors.blueGrey[50]),
                     headingTextStyle:
                         const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
                     columnSpacing: 20,
                     columns: [
-                      DataColumn(label: Text(tr("amount"))),
-                      DataColumn(label: Text(tr("note"))),
-                      DataColumn(label: Text(tr("status"))), // Kolom status
+                      DataColumn(
+                        label: Text(tr("amount")),
+                        numeric: true,
+                        onSort: (columnIndex, ascending) =>
+                            _sortUsageList(columnIndex, ascending),
+                      ),
+                      DataColumn(
+                        label: Text(tr("note")),
+                        onSort: (columnIndex, ascending) =>
+                            _sortUsageList(columnIndex, ascending),
+                      ),
+                      DataColumn(
+                        label: Text(tr("status")),
+                        onSort: (columnIndex, ascending) =>
+                            _sortUsageList(columnIndex, ascending),
+                      ),
                       DataColumn(label: Text(tr("action"))),
                     ],
                     rows: _usageList.map((usage) {
