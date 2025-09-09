@@ -21,7 +21,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
   DateTime? _taxDate;
   DateTime? _lastOilChangeDate;
   DateTime? _nextOilDate;
-  DateTime? _reminderDateTime; // tambahan
+  DateTime? _reminderDateTime; 
   int? _editingVehicleId;
 
   final List<String> _vehicleTypes = ['Sepeda Motor / Motorcycle', 'Mobil / Car'];
@@ -64,13 +64,11 @@ class _VehicleScreenState extends State<VehicleScreen> {
   void _calculateNextOilDate() {
     if (_lastOilChangeDate != null && _oilUsageMonthsController.text.isNotEmpty) {
       final months = int.tryParse(_oilUsageMonthsController.text) ?? 0;
-      setState(() {
-        _nextOilDate = DateTime(
-          _lastOilChangeDate!.year,
-          _lastOilChangeDate!.month + months,
-          _lastOilChangeDate!.day,
-        );
-      });
+      _nextOilDate = DateTime(
+        _lastOilChangeDate!.year,
+        _lastOilChangeDate!.month + months,
+        _lastOilChangeDate!.day,
+      );
     }
   }
 
@@ -113,7 +111,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
     // Schedule notification jika reminder diisi
     if (_reminderDateTime != null) {
       await NotificationService.instance.scheduleNotification(
-        _editingVehicleId ?? DateTime.now().millisecondsSinceEpoch ~/ 1000, // unique id
+        _editingVehicleId ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
         'Pengingat Kendaraan',
         'Waktunya periksa/mengganti oli: ${_vehicleTypeController.text} - ${_plateNumberController.text}',
         _reminderDateTime!,
@@ -125,17 +123,24 @@ class _VehicleScreenState extends State<VehicleScreen> {
   }
 
   void _editVehicle(Map<String, dynamic> vehicle) {
-    setState(() {
-      _editingVehicleId = vehicle['id'] as int;
-      _vehicleTypeController.text = vehicle['vehicleType'] ?? '';
-      _plateNumberController.text = vehicle['plateNumber'] ?? '';
-      _lastOilChangeKmController.text = vehicle['lastOilKm']?.toString() ?? '';
-      _oilUsageMonthsController.text = vehicle['oilUsageMonths']?.toString() ?? '';
-      _taxDate = vehicle['taxDate'] != null ? DateTime.tryParse(vehicle['taxDate']) : null;
-      _lastOilChangeDate = vehicle['lastOilChangeDate'] != null ? DateTime.tryParse(vehicle['lastOilChangeDate']) : null;
-      _nextOilDate = vehicle['nextOilDate'] != null ? DateTime.tryParse(vehicle['nextOilDate']) : null;
-      _reminderDateTime = vehicle['reminderDateTime'] != null ? DateTime.tryParse(vehicle['reminderDateTime']) : null;
-    });
+    if (vehicle == null) return;
+
+    _editingVehicleId = vehicle['id'] as int?;
+
+    _vehicleTypeController.text = vehicle['vehicleType'] ?? '';
+    _plateNumberController.text = vehicle['plateNumber'] ?? '';
+    _lastOilChangeKmController.text = vehicle['lastOilKm']?.toString() ?? '';
+    _oilUsageMonthsController.text = vehicle['oilUsageMonths']?.toString() ?? '';
+
+    final taxDateStr = vehicle['taxDate'] as String?;
+    final lastOilStr = vehicle['lastOilChangeDate'] as String?;
+    final nextOilStr = vehicle['nextOilDate'] as String?;
+    final reminderStr = vehicle['reminderDateTime'] as String?;
+
+    _taxDate = taxDateStr != null ? DateTime.tryParse(taxDateStr) : null;
+    _lastOilChangeDate = lastOilStr != null ? DateTime.tryParse(lastOilStr) : null;
+    _nextOilDate = nextOilStr != null ? DateTime.tryParse(nextOilStr) : null;
+    _reminderDateTime = reminderStr != null ? DateTime.tryParse(reminderStr) : null;
   }
 
   @override
@@ -145,18 +150,41 @@ class _VehicleScreenState extends State<VehicleScreen> {
         title: Text('vehicle'.tr(), style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF0066FF),
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildFormCard(),
-            const SizedBox(height: 16),
             _buildVehicleCards(),
           ],
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          _clearForm();
+          _showVehicleFormSheet();
+        },
+        backgroundColor: const Color(0xFF0066FF),
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+    );
+  }
+
+  void _showVehicleFormSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          left: 16,
+          right: 16,
+          top: 16,
+        ),
+        child: _buildFormCard(),
       ),
     );
   }
@@ -164,100 +192,89 @@ class _VehicleScreenState extends State<VehicleScreen> {
   Widget _buildFormCard() {
     return Form(
       key: _formKey,
-      child: Card(
-        elevation: 3,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(10.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('vehicle_info'.tr(),
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              DropdownButtonFormField<String>(
-                value: _vehicleTypes.contains(_vehicleTypeController.text)
-                    ? _vehicleTypeController.text
-                    : null,
-                items: _vehicleTypes
-                    .map((type) => DropdownMenuItem(
-                          value: type,
-                          child: Text(type, style: const TextStyle(fontSize: 13)),
-                        ))
-                    .toList(),
-                onChanged: (val) => setState(() => _vehicleTypeController.text = val ?? ''),
-                validator: (val) =>
-                    val == null || val.isEmpty ? 'select_vehicle_type'.tr() : null,
-                decoration: _inputDecoration('vehicle_type'.tr()),
-              ),
-              const SizedBox(height: 6),
-              TextFormField(
-                controller: _plateNumberController,
-                decoration: _inputDecoration('plate_number'.tr()),
-                style: const TextStyle(fontSize: 13),
-                validator: (val) =>
-                    val == null || val.isEmpty ? 'enter_plate_number'.tr() : null,
-              ),
-              const SizedBox(height: 10),
-              Text('vehicle_tax'.tr(),
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              _buildDatePickerField('tax_date'.tr(), _taxDate, (date) => setState(() => _taxDate = date)),
-              const SizedBox(height: 10),
-              Text('oil_schedule'.tr(),
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              TextFormField(
-                controller: _lastOilChangeKmController,
-                decoration: _inputDecoration('last_oil_km'.tr()),
-                style: const TextStyle(fontSize: 13),
-                keyboardType: TextInputType.number,
-                validator: (val) =>
-                    val == null || val.isEmpty ? 'enter_last_oil_km'.tr() : null,
-              ),
-              const SizedBox(height: 6),
-              TextFormField(
-                controller: _oilUsageMonthsController,
-                decoration: _inputDecoration('oil_usage_months'.tr()),
-                style: const TextStyle(fontSize: 13),
-                keyboardType: TextInputType.number,
-                validator: (val) =>
-                    val == null || val.isEmpty ? 'enter_oil_usage_months'.tr() : null,
-                onChanged: (_) => _calculateNextOilDate(),
-              ),
-              const SizedBox(height: 6),
-              _buildDatePickerField(
-                  'last_oil_change_date'.tr(),
-                  _lastOilChangeDate,
-                  (date) {
-                    setState(() => _lastOilChangeDate = date);
-                    _calculateNextOilDate();
-                  }),
-              const SizedBox(height: 6),
-              _buildDatePickerField('next_oil_date'.tr(), _nextOilDate, (_) {}),
-              const SizedBox(height: 6),
-              _buildDateTimePickerField('reminder'.tr(), _reminderDateTime, (dateTime) {
-                setState(() => _reminderDateTime = dateTime);
-              }),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0066FF),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  onPressed: _saveVehicle,
-                  child: Text(
-                    _editingVehicleId == null ? 'add'.tr() : 'update'.tr(),
-                    style: const TextStyle(fontSize: 13),
-                  ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('vehicle_info'.tr(),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            DropdownButtonFormField<String>(
+              value: _vehicleTypes.contains(_vehicleTypeController.text)
+                  ? _vehicleTypeController.text
+                  : null,
+              items: _vehicleTypes
+                  .map((type) => DropdownMenuItem(
+                        value: type,
+                        child: Text(type, style: const TextStyle(fontSize: 13)),
+                      ))
+                  .toList(),
+              onChanged: (val) => setState(() => _vehicleTypeController.text = val ?? ''),
+              validator: (val) =>
+                  val == null || val.isEmpty ? 'select_vehicle_type'.tr() : null,
+              decoration: _inputDecoration('vehicle_type'.tr()),
+            ),
+            const SizedBox(height: 6),
+            TextFormField(
+              controller: _plateNumberController,
+              decoration: _inputDecoration('plate_number'.tr()),
+              style: const TextStyle(fontSize: 13),
+              validator: (val) =>
+                  val == null || val.isEmpty ? 'enter_plate_number'.tr() : null,
+            ),
+            const SizedBox(height: 10),
+            _buildDatePickerField('tax_date'.tr(), _taxDate, (date) => setState(() => _taxDate = date)),
+            const SizedBox(height: 6),
+            TextFormField(
+              controller: _lastOilChangeKmController,
+              decoration: _inputDecoration('last_oil_km'.tr()),
+              keyboardType: TextInputType.number,
+              validator: (val) =>
+                  val == null || val.isEmpty ? 'enter_last_oil_km'.tr() : null,
+            ),
+            const SizedBox(height: 6),
+            TextFormField(
+              controller: _oilUsageMonthsController,
+              decoration: _inputDecoration('oil_usage_months'.tr()),
+              keyboardType: TextInputType.number,
+              validator: (val) =>
+                  val == null || val.isEmpty ? 'enter_oil_usage_months'.tr() : null,
+              onChanged: (_) => setState(() => _calculateNextOilDate()),
+            ),
+            const SizedBox(height: 6),
+            _buildDatePickerField('last_oil_change_date'.tr(), _lastOilChangeDate, (date) {
+              setState(() {
+                _lastOilChangeDate = date;
+                _calculateNextOilDate();
+              });
+            }),
+            const SizedBox(height: 6),
+            _buildDatePickerField('next_oil_date'.tr(), _nextOilDate, (_) {}),
+            const SizedBox(height: 6),
+            _buildDateTimePickerField('reminder'.tr(), _reminderDateTime, (dateTime) {
+              setState(() => _reminderDateTime = dateTime);
+            }),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0066FF),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () {
+                  _saveVehicle();
+                  Navigator.pop(context);
+                },
+                child: Text(
+                  _editingVehicleId == null ? 'add'.tr() : 'update'.tr(),
+                  style: const TextStyle(fontSize: 13),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -373,7 +390,10 @@ class _VehicleScreenState extends State<VehicleScreen> {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
-                          onPressed: () => _editVehicle(v),
+                          onPressed: () {
+                            _editVehicle(v);
+                            _showVehicleFormSheet();
+                          },
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete, color: Colors.red, size: 20),

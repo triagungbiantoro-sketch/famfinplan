@@ -23,16 +23,15 @@ class _IncomeScreenState extends State<IncomeScreen> {
   final List<String> _categories = ["salary", "bonus", "investment", "other"];
 
   final Map<String, Color> _categoryColors = {
-    "salary": Colors.green,
-    "bonus": Colors.blue,
-    "investment": Colors.orange,
-    "other": Colors.grey,
+    "salary": Colors.green.shade700,
+    "bonus": Colors.blue.shade700,
+    "investment": Colors.orange.shade800,
+    "other": Colors.grey.shade600,
   };
 
   int _selectedMonth = DateTime.now().month;
   int _selectedYear = DateTime.now().year;
 
-  // Currency
   String _currencySymbol = "Rp";
   String _currencyCode = "IDR";
 
@@ -41,8 +40,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
     super.initState();
     _loadSettings();
     _loadIncome();
-
-    // ✅ default tanggal = hari ini
     _selectedDate = DateTime.now();
   }
 
@@ -65,6 +62,17 @@ class _IncomeScreenState extends State<IncomeScreen> {
     });
   }
 
+  double get _totalIncomeThisMonth {
+    return _filteredIncomeList.fold(0, (sum, item) => sum + (item['amount'] as num));
+  }
+
+  List<Map<String, dynamic>> get _filteredIncomeList {
+    return _incomeList.where((income) {
+      final date = DateTime.parse(income["date"]);
+      return date.month == _selectedMonth && date.year == _selectedYear;
+    }).toList();
+  }
+
   String _formatCurrency(double value) {
     final locale = _currencyCode == "IDR" ? "id_ID" : "en_US";
     final decimalDigits = _currencyCode == "IDR" ? 0 : 2;
@@ -83,9 +91,8 @@ class _IncomeScreenState extends State<IncomeScreen> {
   Future<void> _saveIncome() async {
     if (_formKey.currentState!.validate()) {
       if (_selectedCategory == null || _selectedDate == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr("complete_category_date"))),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(tr("complete_category_date"))));
         return;
       }
 
@@ -102,26 +109,25 @@ class _IncomeScreenState extends State<IncomeScreen> {
       _amountController.clear();
       _noteController.clear();
       _selectedCategory = null;
-      _selectedDate = DateTime.now(); // ✅ reset ke hari ini
+      _selectedDate = DateTime.now();
 
       _loadIncome();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("income_saved", args: [_formatCurrency(amount), tr(_selectedCategory ?? "other")]))),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              tr("income_saved", args: [_formatCurrency(amount), tr(_selectedCategory ?? "other")]))));
     }
   }
 
   Future<void> _deleteIncome(int id) async {
     await DatabaseHelper.instance.deleteIncome(id);
     _loadIncome();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(tr("data_deleted"))),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr("data_deleted"))));
   }
 
   Future<void> _editIncome(Map<String, dynamic> income) async {
-    final editAmountController = TextEditingController(text: _formatCurrency((income["amount"] as num).toDouble()));
+    final editAmountController =
+        TextEditingController(text: _formatCurrency((income["amount"] as num).toDouble()));
     final editNoteController = TextEditingController(text: income["note"] ?? "");
     String? editCategory = income["category"];
     DateTime editDate = DateTime.parse(income["date"]);
@@ -177,12 +183,9 @@ class _IncomeScreenState extends State<IncomeScreen> {
           ),
         ),
         actions: [
-          TextButton(
-            child: Text(tr("cancel")),
-            onPressed: () => Navigator.pop(context),
-          ),
+          TextButton(child: Text(tr("cancel")), onPressed: () => Navigator.pop(context)),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             child: Text(tr("save"), style: const TextStyle(color: Colors.white)),
             onPressed: () async {
               final updatedAmount = _parseCurrency(editAmountController.text);
@@ -194,21 +197,13 @@ class _IncomeScreenState extends State<IncomeScreen> {
               });
               Navigator.pop(context);
               _loadIncome();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(tr("data_updated"))),
-              );
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text(tr("data_updated"))));
             },
           ),
         ],
       ),
     );
-  }
-
-  List<Map<String, dynamic>> get _filteredIncomeList {
-    return _incomeList.where((income) {
-      final date = DateTime.parse(income["date"]);
-      return date.month == _selectedMonth && date.year == _selectedYear;
-    }).toList();
   }
 
   Widget _buildFancyTextField({
@@ -217,41 +212,14 @@ class _IncomeScreenState extends State<IncomeScreen> {
     IconData? icon,
     TextInputType keyboardType = TextInputType.text,
   }) {
-    return Focus(
-      child: Builder(
-        builder: (context) {
-          final bool isFocused = Focus.of(context).hasFocus;
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: isFocused ? 10 : 4,
-                  offset: Offset(0, isFocused ? 6 : 3),
-                ),
-              ],
-            ),
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: TextFormField(
-                controller: controller,
-                keyboardType: keyboardType,
-                validator: (value) =>
-                    value == null || value.isEmpty ? "${tr("enter")} $label" : null,
-                decoration: InputDecoration(
-                  labelText: label,
-                  prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent) : null,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
-            ),
-          );
-        },
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      validator: (value) => value == null || value.isEmpty ? "${tr("enter")} $label" : null,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: icon != null ? Icon(icon, color: Colors.green) : null,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
@@ -270,8 +238,94 @@ class _IncomeScreenState extends State<IncomeScreen> {
       validator: (val) => val == null ? "${tr("choose")} $label" : null,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent) : null,
+        prefixIcon: icon != null ? Icon(icon, color: Colors.green) : null,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    );
+  }
+
+  void _showAddIncomeSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom, left: 16, right: 16, top: 16),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildFancyTextField(
+                  controller: _amountController,
+                  label: tr("amount"),
+                  icon: Icons.attach_money,
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                _buildFancyDropdown(
+                  label: tr("category"),
+                  value: _selectedCategory,
+                  items: _categories,
+                  onChanged: (val) => setState(() => _selectedCategory = val),
+                  icon: Icons.category,
+                ),
+                const SizedBox(height: 12),
+                // Tanggal pakai date picker
+                InkWell(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _selectedDate ?? DateTime.now(),
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) setState(() => _selectedDate = picked);
+                  },
+                  child: InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: tr("date"),
+                      prefixIcon: const Icon(Icons.calendar_today),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: Text(
+                        DateFormat("dd/MM/yyyy", context.locale.toString()).format(_selectedDate!)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildFancyTextField(
+                  controller: _noteController,
+                  label: tr("note"),
+                  icon: Icons.note_alt,
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      _saveIncome();
+                      Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.save, color: Colors.white),
+                    label: Text(tr("save"), style: const TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -288,172 +342,139 @@ class _IncomeScreenState extends State<IncomeScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        backgroundColor: const Color.fromARGB(255, 39, 204, 94),
-        title: Text(tr("add_income"), style: const TextStyle(color: Colors.white)),
+        backgroundColor: Colors.green,
+        title: Text(tr("income"), style: const TextStyle(color: Colors.white)),
         centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Form(
-              key: _formKey,
-              child: Column(
+      body: Column(
+        children: [
+          // Total income bulan ini
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            color: Colors.green.shade100,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
                 children: [
-                  _buildFancyTextField(
-                    controller: _amountController,
-                    label: tr("amount"),
-                    icon: Icons.attach_money,
-                    keyboardType: TextInputType.number,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildFancyDropdown(
-                    label: tr("category"),
-                    value: _selectedCategory,
-                    items: _categories,
-                    onChanged: (val) => setState(() => _selectedCategory = val),
-                    icon: Icons.category,
-                  ),
-                  const SizedBox(height: 16),
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: _selectedDate ?? DateTime.now(),
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (picked != null) setState(() => _selectedDate = picked);
-                    },
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        labelText: tr("date"),
-                        prefixIcon: const Icon(Icons.calendar_today),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
-                      child: Text(DateFormat("dd/MM/yyyy", context.locale.toString())
-                          .format(_selectedDate!)), // ✅ default hari ini
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildFancyTextField(
-                    controller: _noteController,
-                    label: tr("note"),
-                    icon: Icons.note_alt,
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _saveIncome,
-                      icon: const Icon(Icons.save, color: Colors.white),
-                      label: Text(tr("save"), style: const TextStyle(color: Colors.white)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.redAccent,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
+                  const Icon(Icons.account_balance_wallet, size: 28, color: Colors.green),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(tr("total_income_this_month"),
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black54)),
+                      const SizedBox(height: 4),
+                      Text(_formatCurrency(_totalIncomeThisMonth),
+                          style: const TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                    ],
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
-            const Divider(),
-            const SizedBox(height: 10),
-            Text(tr("income_list"),
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+          ),
+          // Dropdown bulan & tahun
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
               children: [
-                DropdownButton<int>(
-                  value: _selectedMonth,
-                  items: List.generate(12, (i) => i + 1)
-                      .map((m) => DropdownMenuItem(
-                            value: m,
-                            child: Text(DateFormat.MMMM(context.locale.toString())
-                                .format(DateTime(0, m))),
-                          ))
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) setState(() => _selectedMonth = val);
-                  },
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    value: _selectedMonth,
+                    items: List.generate(12, (i) {
+                      final month = i + 1;
+                      return DropdownMenuItem(
+                          value: month,
+                          child: Text(DateFormat.MMMM().format(DateTime(0, month))));
+                    }),
+                    onChanged: (val) => setState(() => _selectedMonth = val ?? _selectedMonth),
+                    decoration: const InputDecoration(
+                      labelText: "Month",
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    ),
+                  ),
                 ),
-                const SizedBox(width: 16),
-                DropdownButton<int>(
-                  value: _selectedYear,
-                  items: List.generate(5, (i) => DateTime.now().year - i)
-                      .map((y) => DropdownMenuItem(value: y, child: Text("$y")))
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) setState(() => _selectedYear = val);
-                  },
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    value: _selectedYear,
+                    items: List.generate(10, (i) => DateTime.now().year - 5 + i)
+                        .map((y) => DropdownMenuItem(value: y, child: Text(y.toString())))
+                        .toList(),
+                    onChanged: (val) => setState(() => _selectedYear = val ?? _selectedYear),
+                    decoration: const InputDecoration(
+                      labelText: "Year",
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    ),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            _filteredIncomeList.isEmpty
+          ),
+          Expanded(
+            child: _filteredIncomeList.isEmpty
                 ? Center(child: Text(tr("no_data")))
-                : Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        headingRowColor:
-                            MaterialStateProperty.resolveWith((states) => Colors.blueGrey[50]),
-                        headingTextStyle: const TextStyle(
-                            fontWeight: FontWeight.bold, color: Colors.black87),
-                        columnSpacing: 20,
-                        columns: [
-                          DataColumn(label: Text(tr("amount"))),
-                          DataColumn(label: Text(tr("category"))),
-                          DataColumn(label: Text(tr("date"))),
-                          DataColumn(label: Text(tr("note"))),
-                          DataColumn(label: Text(tr("action"))),
-                        ],
-                        rows: _filteredIncomeList.map((income) {
-                          final date = DateTime.parse(income["date"]);
-                          final color = _categoryColors[income["category"]] ?? Colors.grey;
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    itemCount: _filteredIncomeList.length,
+                    itemBuilder: (context, index) {
+                      final income = _filteredIncomeList[index];
+                      final color = _categoryColors[income["category"]] ?? Colors.grey;
+                      final date = DateTime.parse(income["date"]);
 
-                          return DataRow(
-                            cells: [
-                              DataCell(Text(
-                                _formatCurrency((income["amount"] as num).toDouble()),
-                                style: const TextStyle(fontWeight: FontWeight.w500),
-                              )),
-                              DataCell(Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(tr(income["category"]),
-                                    style: TextStyle(
-                                        color: color, fontWeight: FontWeight.bold)),
-                              )),
-                              DataCell(Text(DateFormat("dd/MM/yyyy", context.locale.toString())
-                                  .format(date))),
-                              DataCell(Text(income["note"] ?? "-")),
-                              DataCell(Row(
-                                children: [
-                                  IconButton(
-                                      icon: const Icon(Icons.edit, color: Colors.orange),
-                                      onPressed: () => _editIncome(income)),
-                                  IconButton(
-                                      icon: const Icon(Icons.delete, color: Colors.red),
-                                      onPressed: () => _deleteIncome(income["id"])),
-                                ],
-                              )),
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 2,
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          leading: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: color.withOpacity(0.2),
+                            child: Icon(Icons.attach_money, color: color, size: 20),
+                          ),
+                          title: Text(
+                            _formatCurrency((income["amount"] as num).toDouble()),
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, color: Colors.grey.shade900, fontSize: 16),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(tr(income["category"]),
+                                  style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+                              Text(DateFormat("dd/MM/yyyy", context.locale.toString()).format(date),
+                                  style: const TextStyle(fontSize: 12)),
+                              if ((income["note"] ?? "").isNotEmpty)
+                                Text(income["note"], style: const TextStyle(color: Colors.black54, fontSize: 12)),
                             ],
-                          );
-                        }).toList(),
-                      ),
-                    ),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                  icon: const Icon(Icons.edit, color: Colors.orange, size: 20),
+                                  onPressed: () => _editIncome(income)),
+                              IconButton(
+                                  icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                                  onPressed: () => _deleteIncome(income["id"])),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
-          ],
-        ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddIncomeSheet(context),
+        backgroundColor: Colors.green,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }

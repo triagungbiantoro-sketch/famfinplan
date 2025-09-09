@@ -1,4 +1,3 @@
-// settings_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -60,16 +59,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // -------------------- BACKUP DATABASE --------------------
   Future<void> _backupDatabase() async {
     try {
       final databasesPath = await getDatabasesPath();
       final dbPath = p.join(databasesPath, 'famfinplan.db');
       final dbFile = File(dbPath);
 
-      if (!await dbFile.exists()) {
-        throw Exception("File database tidak ditemukan");
-      }
+      if (!await dbFile.exists()) throw Exception("Database tidak ditemukan");
 
       final appDir = await getApplicationDocumentsDirectory();
       final backupDir = Directory(p.join(appDir.path, 'backups'));
@@ -94,7 +90,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // -------------------- RESTORE DATABASE DENGAN PILIHAN --------------------
   Future<void> _restoreDatabase() async {
     try {
       final appDir = await getApplicationDocumentsDirectory();
@@ -111,7 +106,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           .whereType<File>()
           .where((f) => f.path.endsWith('.db'))
           .toList()
-        ..sort((a, b) => b.path.compareTo(a.path)); // terbaru dulu
+        ..sort((a, b) => b.path.compareTo(a.path));
 
       if (files.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -176,7 +171,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // -------------------- RESET DATABASE --------------------
   Future<void> _resetDatabase() async {
     final controller = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -220,7 +214,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // -------------------- DELETE SINGLE BACKUP --------------------
   Future<void> _deleteSingleBackup() async {
     try {
       final appDir = await getApplicationDocumentsDirectory();
@@ -294,6 +287,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Widget _buildCard(String title, IconData icon, Widget child) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(icon, color: Colors.green),
+              const SizedBox(width: 8),
+              Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ]),
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -302,16 +318,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         centerTitle: true,
         backgroundColor: Colors.green,
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Currency
-              Text(tr("currency"),
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
+        child: Column(
+          children: [
+            // Currency Setting
+            _buildCard(
+              tr("currency"),
+              Icons.attach_money,
               DropdownButtonFormField<String>(
                 value: selectedCurrency,
                 items: currencies
@@ -319,16 +333,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     .toList(),
                 onChanged: (value) => setState(() => selectedCurrency = value!),
                 decoration: InputDecoration(
-                  border:
-                      OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 ),
               ),
-              const SizedBox(height: 24),
+            ),
 
-              // Language
-              Text(tr("language"),
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
+            // Language Setting
+            _buildCard(
+              tr("language"),
+              Icons.language,
               DropdownButtonFormField<String>(
                 value: selectedLanguage,
                 items: languagesMap.keys
@@ -336,74 +350,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     .toList(),
                 onChanged: (value) => setState(() => selectedLanguage = value!),
                 decoration: InputDecoration(
-                  border:
-                      OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 ),
               ),
-              const SizedBox(height: 32),
+            ),
 
-              // Buttons
-              Center(
-                child: Column(
-                  children: [
-                    ElevatedButton.icon(
+            // Database Actions
+            _buildCard(
+              tr("database_actions"),
+              Icons.storage,
+              Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.save, color: Colors.blue),
+                    title: Text(tr("backup_database")),
+                    onTap: _backupDatabase,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    tileColor: Colors.blue[50],
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    leading: const Icon(Icons.restore, color: Colors.orange),
+                    title: Text(tr("restore_database")),
+                    onTap: _restoreDatabase,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    tileColor: Colors.orange[50],
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    leading: const Icon(Icons.delete_forever, color: Colors.red),
+                    title: Text(tr("reset_database")),
+                    onTap: _resetDatabase,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    tileColor: Colors.red[50],
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    leading: const Icon(Icons.delete_outline, color: Colors.purple),
+                    title: Text(tr("delete_backup_file")),
+                    onTap: _deleteSingleBackup,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    tileColor: Colors.purple[50],
+                  ),
+                  const SizedBox(height: 12),
+                  Center(
+                    child: ElevatedButton.icon(
                       onPressed: _saveSettings,
                       icon: const Icon(Icons.save),
                       label: Text(tr("save")),
                       style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        backgroundColor: Colors.green,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _backupDatabase,
-                      icon: const Icon(Icons.backup),
-                      label: Text(tr("backup_database")),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _restoreDatabase,
-                      icon: const Icon(Icons.restore),
-                      label: Text(tr("restore_database")),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _resetDatabase,
-                      icon: const Icon(Icons.delete_forever, color: Colors.white),
-                      label: Text(tr("reset_database"), style: const TextStyle(color: Colors.white)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _deleteSingleBackup,
-                      icon: const Icon(Icons.delete_outline, color: Colors.white),
-                      label: Text(tr("delete_backup_file"), style: const TextStyle(color: Colors.white)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.purple,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

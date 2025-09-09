@@ -21,13 +21,10 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
   final List<Map<String, dynamic>> _usageList = [];
 
   DateTime _selectedMonth = DateTime.now();
-  DateTime? _selectedDateTime; // opsional untuk notifikasi
+  DateTime? _selectedDateTime;
 
   String _currencySymbol = "Rp";
   String _currencyCode = "IDR";
-
-  int? _sortColumnIndex;
-  bool _sortAscending = true;
 
   @override
   void initState() {
@@ -48,41 +45,32 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
   Future<void> _initSettingsAndLoadBudget() async {
     await SettingsNotifier.instance.loadSettings();
     _updateCurrency(SettingsNotifier.instance.currentCurrency.value);
-
     SettingsNotifier.instance.currentCurrency.addListener(() {
       _updateCurrency(SettingsNotifier.instance.currentCurrency.value);
     });
-
     await _loadBudget();
   }
 
   void _updateCurrency(String value) {
     setState(() {
       _currencyCode = value.split(" ")[0];
-      _currencySymbol =
-          value.split(" ")[1].replaceAll("(", "").replaceAll(")", "");
+      _currencySymbol = value.split(" ")[1].replaceAll("(", "").replaceAll(")", "");
     });
   }
 
   String _formatCurrency(double value) {
     final locale = _currencyCode == "IDR" ? "id_ID" : "en_US";
-    return NumberFormat.currency(
-      locale: locale,
-      symbol: _currencySymbol,
-      decimalDigits: 0,
-    ).format(value);
+    return NumberFormat.currency(locale: locale, symbol: _currencySymbol, decimalDigits: 0)
+        .format(value);
   }
 
   Future<void> _loadBudget() async {
-    final budgetData =
-        await DatabaseHelper.instance.getBudget(month: _selectedMonth);
+    final budgetData = await DatabaseHelper.instance.getBudget(month: _selectedMonth);
     setState(() {
       _totalBudget = (budgetData?['totalBudget'] ?? 0).toDouble();
       _usedBudget = (budgetData?['usedBudget'] ?? 0).toDouble();
     });
-
-    final usageData =
-        await DatabaseHelper.instance.getBudgetUsage(month: _selectedMonth);
+    final usageData = await DatabaseHelper.instance.getBudgetUsage(month: _selectedMonth);
     setState(() {
       _usageList
         ..clear()
@@ -92,8 +80,7 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
 
   void _changeMonth(int offset) {
     setState(() {
-      _selectedMonth =
-          DateTime(_selectedMonth.year, _selectedMonth.month + offset, 1);
+      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + offset, 1);
     });
     _loadBudget();
   }
@@ -106,13 +93,11 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
       lastDate: DateTime(2100),
     );
     if (pickedDate == null) return;
-
     final pickedTime = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
     );
     if (pickedTime == null) return;
-
     setState(() {
       _selectedDateTime = DateTime(
         pickedDate.year,
@@ -124,267 +109,200 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
     });
   }
 
-  Future<void> _setBudget() async {
-    if (_budgetController.text.isEmpty) return;
+  Future<void> _addUsage({double? amount, String? note, DateTime? notifyAt}) async {
+    final amt = amount ?? double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0;
+    final nt = note ?? _noteController.text;
+    final notify = notifyAt ?? _selectedDateTime;
 
-    final total =
-        double.tryParse(_budgetController.text.replaceAll(',', '')) ?? 0;
-    await DatabaseHelper.instance.setBudget(total, month: _selectedMonth);
-
-    setState(() {
-      _totalBudget = total;
-      _usedBudget = 0;
-      _usageList.clear();
-    });
-    _budgetController.clear();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(tr("budget_set", args: [_formatCurrency(total)]))),
-    );
+    if (_usedBudget + amt <= _totalBudget) {
+      await DatabaseHelper.instance.addBudgetUsage(
+        amt,
+        nt,
+        month: _selectedMonth,
+        notifyAt: notify,
+      );
+      _amountController.clear();
+      _noteController.clear();
+      _selectedDateTime = null;
+      await _loadBudget();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr("usage_added", args: [_formatCurrency(amt), nt]))),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr("budget_exceeded"))));
+    }
   }
 
-  Future<void> _editTotalBudget() async {
-    final editController =
-        TextEditingController(text: _totalBudget.toString());
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr("edit_total_budget")),
-        content: TextField(
-          controller: editController,
-          decoration: InputDecoration(
-            labelText: tr("monthly_total_budget"),
-            border: const OutlineInputBorder(),
-          ),
-          keyboardType: TextInputType.number,
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(tr("cancel"))),
-          ElevatedButton(
-            onPressed: () async {
-              final newTotal = double.tryParse(
-                      editController.text.replaceAll(',', '')) ??
-                  _totalBudget;
+  void _showAddUsageSheet({Map<String, dynamic>? usage}) {
+    final isEdit = usage != null;
+    if (isEdit) {
+      _amountController.text = usage['amount'].toString();
+      _noteController.text = usage['note'] ?? "";
+      _selectedDateTime = usage['notify_at'] != null
+          ? DateTime.tryParse(usage['notify_at'])
+          : null;
+    } else {
+      _amountController.clear();
+      _noteController.clear();
+      _selectedDateTime = null;
+    }
 
-              if (newTotal >= _usedBudget) {
-                await DatabaseHelper.instance
-                    .updateBudgetTotal(newTotal, month: _selectedMonth);
-                DatabaseHelper.instance.dataChanged.value =
-                    !DatabaseHelper.instance.dataChanged.value;
-                Navigator.pop(context);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(tr("total_less_than_used"))),
-                );
-              }
-            },
-            child: Text(tr("save")),
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          left: 16,
+          right: 16,
+          top: 16,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                isEdit ? tr("edit_usage") : tr("add_usage"),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _amountController,
+                decoration: InputDecoration(
+                  labelText: tr("usage_amount"),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.money_off),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _noteController,
+                decoration: InputDecoration(
+                  labelText: tr("note_example"),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.note_alt),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton.icon(
+                icon: const Icon(Icons.alarm),
+                label: Text(
+                  _selectedDateTime == null
+                      ? tr("add_notification_time")
+                      : DateFormat("dd MMM yyyy, HH:mm").format(_selectedDateTime!),
+                ),
+                onPressed: _pickDateTime,
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    if (isEdit) {
+                      final newAmount =
+                          double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0;
+                      final newNote = _noteController.text;
+                      final diff = newAmount - (usage!['amount'] as num).toDouble();
+                      if (_usedBudget + diff <= _totalBudget) {
+                        await DatabaseHelper.instance.updateBudgetUsage(
+                          usage['id'],
+                          newAmount,
+                          newNote,
+                          month: _selectedMonth,
+                          notifyAt: _selectedDateTime,
+                        );
+                        await _loadBudget();
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                              content: Text(tr("usage_updated", args: [_formatCurrency(newAmount), newNote]))),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(tr("budget_exceeded"))),
+                        );
+                      }
+                    } else {
+                      await _addUsage();
+                      Navigator.pop(context);
+                    }
+                  },
+                  icon: Icon(isEdit ? Icons.save : Icons.add, color: Colors.white),
+                  label: Text(isEdit ? tr("save") : tr("add_usage"), style: const TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Future<void> _addUsage() async {
-    if (_amountController.text.isEmpty) return;
-
-    final amount =
-        double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0;
-    final note = _noteController.text;
-
-    if (_usedBudget + amount <= _totalBudget) {
-      await DatabaseHelper.instance.addBudgetUsage(
-        amount,
-        note,
-        month: _selectedMonth,
-        notifyAt: _selectedDateTime, // ✅ aman karena nullable
-      );
-
-      _amountController.clear();
-      _noteController.clear();
-      _selectedDateTime = null;
-
-      await _loadBudget();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(tr("usage_added",
-                args: [_formatCurrency(amount), note]))),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("budget_exceeded"))),
-      );
-    }
-  }
-
-  Future<void> _editUsage(Map<String, dynamic> usage) async {
-    final amountController =
-        TextEditingController(text: usage['amount'].toString());
-    final noteController =
-        TextEditingController(text: usage['note'] ?? "");
-    DateTime? editDateTime =
-        usage['notify_at'] != null ? DateTime.tryParse(usage['notify_at']) : null;
-
-    showDialog(
+  void _showEditBudgetSheet() {
+    final editController = TextEditingController(text: _totalBudget.toString());
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr("edit_usage")),
-        content: Column(
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          left: 16,
+          right: 16,
+          top: 16,
+        ),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Text(tr("edit_monthly_budget"),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
             TextField(
-              controller: amountController,
+              controller: editController,
               decoration: InputDecoration(
-                labelText: tr("amount"),
-                border: const OutlineInputBorder(),
+                labelText: tr("monthly_total_budget"),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                prefixIcon: const Icon(Icons.account_balance_wallet),
               ),
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 10),
-            TextField(
-              controller: noteController,
-              decoration: InputDecoration(
-                labelText: tr("note"),
-                border: const OutlineInputBorder(),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.save, color: Colors.white),
+                label: Text(tr("save"), style: const TextStyle(color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () async {
+                  final newTotal =
+                      double.tryParse(editController.text.replaceAll(',', '')) ?? _totalBudget;
+                  if (newTotal >= _usedBudget) {
+                    await DatabaseHelper.instance.updateBudgetTotal(newTotal, month: _selectedMonth);
+                    await _loadBudget();
+                    Navigator.pop(context);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(tr("total_less_than_used"))),
+                    );
+                  }
+                },
               ),
-            ),
-            const SizedBox(height: 10),
-            TextButton.icon(
-              icon: const Icon(Icons.alarm),
-              label: Text(
-                editDateTime == null
-                    ? tr("add_notification_time")
-                    : DateFormat("dd MMM yyyy, HH:mm").format(editDateTime!),
-              ),
-              onPressed: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: editDateTime ?? DateTime.now(),
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2100),
-                );
-                if (picked == null) return;
-                final pickedTime = await showTimePicker(
-                  context: context,
-                  initialTime: TimeOfDay.now(),
-                );
-                if (pickedTime == null) return;
-                setState(() {
-                  editDateTime = DateTime(
-                    picked.year,
-                    picked.month,
-                    picked.day,
-                    pickedTime.hour,
-                    pickedTime.minute,
-                  );
-                });
-              },
             ),
           ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(tr("cancel"))),
-          ElevatedButton(
-            onPressed: () async {
-              final newAmount = double.tryParse(
-                      amountController.text.replaceAll(',', '')) ??
-                  0;
-              final newNote = noteController.text;
-              final diff =
-                  newAmount - (usage['amount'] as num).toDouble();
-
-              if (_usedBudget + diff <= _totalBudget) {
-                await DatabaseHelper.instance.updateBudgetUsage(
-                  usage['id'],
-                  newAmount,
-                  newNote,
-                  month: _selectedMonth,
-                  notifyAt: editDateTime, // ✅ aman karena nullable
-                );
-                await _loadBudget();
-                Navigator.pop(context);
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                      content: Text(tr("usage_updated",
-                          args: [_formatCurrency(newAmount), newNote]))),
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(tr("budget_exceeded"))),
-                );
-              }
-            },
-            child: Text(tr("save")),
-          ),
-        ],
       ),
     );
-  }
-
-  Future<void> _deleteUsage(Map<String, dynamic> usage) async {
-    await DatabaseHelper.instance
-        .deleteBudgetUsage(usage['id'], month: _selectedMonth);
-    await _loadBudget();
-  }
-
-  Future<void> _toggleRealized(Map<String, dynamic> usage) async {
-    final bool current = (usage['realized'] ?? 0) == 1;
-    await DatabaseHelper.instance.updateBudgetUsageRealized(
-        usage['id'], !current,
-        month: _selectedMonth);
-    await _loadBudget();
-  }
-
-  void _sortUsageList(int columnIndex, bool ascending) {
-    setState(() {
-      _sortColumnIndex = columnIndex;
-      _sortAscending = ascending;
-
-      switch (columnIndex) {
-        case 0: // Amount
-          _usageList.sort((a, b) {
-            final aVal = (a['amount'] as num).toDouble();
-            final bVal = (b['amount'] as num).toDouble();
-            return ascending
-                ? aVal.compareTo(bVal)
-                : bVal.compareTo(aVal);
-          });
-          break;
-        case 1: // Note
-          _usageList.sort((a, b) {
-            final aVal = (a['note'] ?? "").toString();
-            final bVal = (b['note'] ?? "").toString();
-            return ascending
-                ? aVal.compareTo(bVal)
-                : bVal.compareTo(aVal);
-          });
-          break;
-        case 2: // Status
-          _usageList.sort((a, b) {
-            final aVal = (a['realized'] ?? 0) == 1 ? 1 : 0;
-            final bVal = (b['realized'] ?? 0) == 1 ? 1 : 0;
-            return ascending
-                ? aVal.compareTo(bVal)
-                : bVal.compareTo(aVal);
-          });
-          break;
-        case 3: // Notify At
-          _usageList.sort((a, b) {
-            final aVal = a['notify_at'] ?? "";
-            final bVal = b['notify_at'] ?? "";
-            return ascending
-                ? aVal.compareTo(bVal)
-                : bVal.compareTo(aVal);
-          });
-          break;
-      }
-    });
   }
 
   Color _getProgressColor(double progress) {
@@ -396,265 +314,183 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
   @override
   Widget build(BuildContext context) {
     final double remaining = _totalBudget - _usedBudget;
-    final double progress = _totalBudget > 0
-        ? (_usedBudget / _totalBudget).clamp(0.0, 1.0).toDouble()
-        : 0.0;
+    final double progress = _totalBudget > 0 ? (_usedBudget / _totalBudget).clamp(0.0, 1.0) : 0.0;
 
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: Text(tr("budget_planning"),
-            style: const TextStyle(color: Colors.white)),
-        backgroundColor: const Color.fromARGB(255, 16, 66, 206),
+        title: Text(tr("budget_planning"), style: const TextStyle(color: Colors.white)),
+        backgroundColor: Colors.redAccent,
+        centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 16,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Month Navigation
-            Row(
+      body: Column(
+        children: [
+          // Month Selector
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                IconButton(
-                    icon: const Icon(Icons.arrow_left),
-                    onPressed: () => _changeMonth(-1)),
-                Text(
-                  DateFormat.yMMM().format(_selectedMonth),
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                IconButton(
-                    icon: const Icon(Icons.arrow_right),
-                    onPressed: () => _changeMonth(1)),
+                IconButton(icon: const Icon(Icons.arrow_left), onPressed: () => _changeMonth(-1)),
+                Text(DateFormat.yMMM().format(_selectedMonth), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.arrow_right), onPressed: () => _changeMonth(1)),
               ],
             ),
-            const SizedBox(height: 20),
+          ),
 
-            // Budget Card
-            if (_totalBudget > 0)
-              Card(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                color: Colors.blue.shade50,
-                elevation: 3,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          // Budget Summary Card
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            color: Colors.red.shade100,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(tr("monthly_budget_summary"),
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 10),
-                      LinearProgressIndicator(
-                        value: progress,
-                        backgroundColor: Colors.grey[300],
-                        color: _getProgressColor(progress),
-                        minHeight: 12,
+                      Expanded(
+                        child: Text(
+                          tr("monthly_budget_summary"),
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        "${tr("used")}: ${_formatCurrency(_usedBudget)} | ${tr("remaining")}: ${_formatCurrency(remaining)}",
-                        style: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.bold),
+                      IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.orange),
+                        onPressed: _showEditBudgetSheet,
                       ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(value: progress, backgroundColor: Colors.grey[300], color: _getProgressColor(progress), minHeight: 12),
+                  const SizedBox(height: 8),
+                  Text(
+                    "${tr("used")}: ${_formatCurrency(_usedBudget)} | ${tr("remaining")}: ${_formatCurrency(remaining)}",
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
               ),
-
-            const SizedBox(height: 20),
-
-            // Input total budget + edit
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _budgetController,
-                    decoration: InputDecoration(
-                      labelText: tr("monthly_total_budget"),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      prefixIcon:
-                          const Icon(Icons.account_balance_wallet),
-                    ),
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: _setBudget,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 16, horizontal: 20),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text(tr("set"),
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(width: 5),
-                IconButton(
-                  onPressed: _editTotalBudget,
-                  icon: const Icon(Icons.edit, color: Colors.orange),
-                  tooltip: tr("edit"),
-                ),
-              ],
             ),
+          ),
 
-            const SizedBox(height: 20),
+          const SizedBox(height: 12),
 
-            // Add Usage
-            if (_totalBudget > 0) ...[
-              TextField(
-                controller: _amountController,
-                decoration: InputDecoration(
-                  labelText: tr("usage_amount"),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.money_off),
-                ),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _noteController,
-                decoration: InputDecoration(
-                  labelText: tr("note_example"),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.note_alt),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextButton.icon(
-                icon: const Icon(Icons.alarm),
-                label: Text(
-                  _selectedDateTime == null
-                      ? tr("add_notification_time")
-                      : DateFormat("dd MMM yyyy, HH:mm")
-                          .format(_selectedDateTime!),
-                ),
-                onPressed: _pickDateTime,
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _addUsage,
-                  icon: const Icon(Icons.add, color: Colors.white),
-                  label: Text(tr("add_usage"),
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-            ],
+          Expanded(
+            child: _usageList.isEmpty
+                ? Center(child: Text(tr("no_data")))
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: _usageList.length,
+                    itemBuilder: (context, index) {
+                      final usage = _usageList[index];
+                      final dateText = usage['notify_at'] != null
+                          ? DateFormat("dd/MM/yyyy HH:mm").format(DateTime.parse(usage['notify_at']))
+                          : "-";
+                      final realized = (usage['realized'] ?? 0) == 1;
 
-            const SizedBox(height: 20),
-            const Divider(),
-            Text(tr("budget_usage_list"),
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-
-            // Full Scrollable Usage Table
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints:
-                    BoxConstraints(minWidth: MediaQuery.of(context).size.width),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.vertical,
-                  child: DataTable(
-                    sortColumnIndex: _sortColumnIndex,
-                    sortAscending: _sortAscending,
-                    headingRowColor: MaterialStateProperty.resolveWith(
-                        (states) => Colors.blueGrey[50]),
-                    headingTextStyle: const TextStyle(
-                        fontWeight: FontWeight.bold, color: Colors.black87),
-                    columnSpacing: 20,
-                    columns: [
-                      DataColumn(
-                        label: Text(tr("amount")),
-                        numeric: true,
-                        onSort: (columnIndex, ascending) =>
-                            _sortUsageList(columnIndex, ascending),
-                      ),
-                      DataColumn(
-                        label: Text(tr("note")),
-                        onSort: (columnIndex, ascending) =>
-                            _sortUsageList(columnIndex, ascending),
-                      ),
-                      DataColumn(
-                        label: Text(tr("status")),
-                        onSort: (columnIndex, ascending) =>
-                            _sortUsageList(columnIndex, ascending),
-                      ),
-                      DataColumn(
-                        label: Text(tr("notify_at")),
-                        onSort: (columnIndex, ascending) =>
-                            _sortUsageList(columnIndex, ascending),
-                      ),
-                      DataColumn(label: Text(tr("actions"))),
-                    ],
-                    rows: _usageList.map((usage) {
-                      return DataRow(
-                        cells: [
-                          DataCell(Text(_formatCurrency(
-                              (usage['amount'] as num).toDouble()))),
-                          DataCell(Text(usage['note'] ?? "")),
-                          DataCell(Row(
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 3,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Checkbox(
-                                value: (usage['realized'] ?? 0) == 1,
-                                onChanged: (_) => _toggleRealized(usage),
+                              // Leading icon
+                              CircleAvatar(
+                                radius: 24,
+                                backgroundColor: Colors.redAccent.withOpacity(0.2),
+                                child: const Icon(Icons.money_off, color: Colors.redAccent),
                               ),
-                              Text((usage['realized'] ?? 0) == 1
-                                  ? tr("realized")
-                                  : tr("pending")),
-                            ],
-                          )),
-                          DataCell(Text(usage['notify_at'] != null
-                              ? DateFormat("dd MMM yyyy, HH:mm")
-                                  .format(DateTime.parse(usage['notify_at']))
-                              : "-")),
-                          DataCell(Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit,
-                                    color: Colors.orange),
-                                onPressed: () => _editUsage(usage),
+                              const SizedBox(width: 12),
+
+                              // Middle content
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _formatCurrency((usage['amount'] as num).toDouble()),
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    if ((usage['note'] ?? "").isNotEmpty)
+                                      Text(
+                                        usage['note'] ?? "",
+                                        style: const TextStyle(color: Colors.black54),
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 2,
+                                      ),
+                                    Text(
+                                      dateText,
+                                      style: const TextStyle(fontSize: 12, color: Colors.black45),
+                                    ),
+                                    Row(
+                                      children: [
+                                        Checkbox(
+                                          value: realized,
+                                          onChanged: (_) async {
+                                            await DatabaseHelper.instance.updateBudgetUsageRealized(
+                                              usage['id'],
+                                              !realized,
+                                              month: _selectedMonth,
+                                            );
+                                            await _loadBudget();
+                                          },
+                                        ),
+                                        Flexible(
+                                          child: Text(
+                                            realized ? tr("realized") : tr("pending"),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.delete,
-                                    color: Colors.red),
-                                onPressed: () => _deleteUsage(usage),
+
+                              const SizedBox(width: 8),
+
+                              // Trailing buttons
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, color: Colors.orange),
+                                    onPressed: () => _showAddUsageSheet(usage: usage),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.red),
+                                    onPressed: () async {
+                                      await DatabaseHelper.instance.deleteBudgetUsage(usage['id'], month: _selectedMonth);
+                                      await _loadBudget();
+                                    },
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
                               ),
                             ],
-                          )),
-                        ],
+                          ),
+                        ),
                       );
-                    }).toList(),
+                    },
                   ),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddUsageSheet(),
+        backgroundColor: Colors.redAccent,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
