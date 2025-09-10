@@ -5,10 +5,9 @@ import 'package:share_plus/share_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
-import 'package:printing/printing.dart';
-import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
+import 'package:easy_localization/easy_localization.dart';
 
 import '../db/notes_database.dart';
 
@@ -201,7 +200,6 @@ class _NotesScreenState extends State<NotesScreen> {
     }
   }
 
-  // Share per note dengan pilihan PDF atau Text
   void _shareNoteWithOptions(Map<String, dynamic> note) {
     showModalBottomSheet(
       context: context,
@@ -246,7 +244,6 @@ class _NotesScreenState extends State<NotesScreen> {
 
   void _shareNoteAsPDF(Map<String, dynamic> note) async {
     final pdf = pw.Document();
-
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
@@ -329,7 +326,6 @@ class _NotesScreenState extends State<NotesScreen> {
           }
 
           contentWidgets.add(pw.Divider(height: 20));
-
           return pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: contentWidgets);
         }).toList(),
       ),
@@ -338,7 +334,6 @@ class _NotesScreenState extends State<NotesScreen> {
     final outputDir = Directory.systemTemp;
     final file = File('${outputDir.path}/notes_${DateTime.now().millisecondsSinceEpoch}.pdf');
     await file.writeAsBytes(await pdf.save());
-
     await Share.shareXFiles([XFile(file.path)], text: 'Notes PDF');
   }
 
@@ -353,20 +348,19 @@ class _NotesScreenState extends State<NotesScreen> {
   Future<void> _scheduleAlarm(Map<String, dynamic> note) async {
     try {
       final now = DateTime.now();
+
       DateTime? selectedDate = await showDatePicker(
         context: context,
         initialDate: now,
         firstDate: now,
         lastDate: DateTime(now.year + 5),
       );
-
       if (selectedDate == null) return;
 
       TimeOfDay? selectedTime = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.now(),
       );
-
       if (selectedTime == null) return;
 
       final scheduledDate = DateTime(
@@ -378,19 +372,18 @@ class _NotesScreenState extends State<NotesScreen> {
       );
 
       tz.TZDateTime scheduledTZDate = tz.TZDateTime.from(scheduledDate, tz.local);
-
       if (scheduledTZDate.isBefore(tz.TZDateTime.now(tz.local))) {
         scheduledTZDate = scheduledTZDate.add(const Duration(days: 1));
       }
 
-      const androidDetails = AndroidNotificationDetails(
+      final androidDetails = AndroidNotificationDetails(
         'note_alarm_channel',
         'Note Alarm',
         channelDescription: 'Channel for note reminders',
         importance: Importance.max,
         priority: Priority.high,
       );
-      const iosDetails = DarwinNotificationDetails();
+      final iosDetails = DarwinNotificationDetails();
       final notificationDetails = NotificationDetails(android: androidDetails, iOS: iosDetails);
 
       await flutterLocalNotificationsPlugin.zonedSchedule(
@@ -399,8 +392,9 @@ class _NotesScreenState extends State<NotesScreen> {
         note['content'],
         scheduledTZDate,
         notificationDetails,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.wallClockTime,
         androidAllowWhileIdle: true,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.dateAndTime,
       );
 
       note['alarmDate'] = scheduledTZDate.toIso8601String();
@@ -435,11 +429,7 @@ class _NotesScreenState extends State<NotesScreen> {
         title: Text('notes'.tr(), style: const TextStyle(color: Colors.white)),
         actions: [
           IconButton(icon: const Icon(Icons.share), onPressed: _shareAllNotes, color: Colors.white),
-          IconButton(
-            icon: const Icon(Icons.picture_as_pdf),
-            onPressed: _shareAllNotes,
-            color: Colors.white,
-          ),
+          IconButton(icon: const Icon(Icons.picture_as_pdf), onPressed: _shareAllNotes, color: Colors.white),
         ],
       ),
       body: Column(
@@ -534,39 +524,34 @@ class _NotesScreenState extends State<NotesScreen> {
                                           ),
                                         );
                                       },
-                                      child: Image.file(File(imagePath!), height: 100),
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(top: 8.0),
+                                        child: Image.file(File(imagePath!), height: 150),
+                                      ),
                                     ),
-
-                                ],
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.alarm),
-                                      color: Colors.purple,
-                                      onPressed: () => _scheduleAlarm(note),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.share),
-                                      color: _primaryColor,
-                                      onPressed: () => _shareNoteWithOptions(note),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.edit),
-                                      color: Colors.orange,
-                                      onPressed: () => _showNoteDialog(note: note),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete),
-                                      color: Colors.red,
-                                      onPressed: () async {
-                                        await NotesDatabase.instance.deleteNote(note['id']);
-                                        _refreshNotes();
-                                      },
-                                    ),
-                                  ],
-                                ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      IconButton(
+                                          onPressed: () => _showNoteDialog(note: note),
+                                          icon: const Icon(Icons.edit, color: Colors.blue)),
+                                      IconButton(
+                                          onPressed: () => _scheduleAlarm(note),
+                                          icon: const Icon(Icons.alarm, color: Colors.orange)),
+                                      IconButton(
+                                          onPressed: () => _shareNoteWithOptions(note),
+                                          icon: const Icon(Icons.share, color: Colors.green)),
+                                      IconButton(
+                                        onPressed: () async {
+                                          await NotesDatabase.instance.deleteNote(note['id']);
+                                          await _refreshNotes();
+                                        },
+                                        icon: const Icon(Icons.delete, color: Colors.red),
+                                      ),
+                                    ],
+                                  )
+                                ]
                               ],
                             ),
                           ),
@@ -577,33 +562,18 @@ class _NotesScreenState extends State<NotesScreen> {
           ),
           if (_filteredNotes.length > _itemsPerPage)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  ElevatedButton(
-                    onPressed: _currentPage > 0
-                        ? () {
-                            setState(() => _currentPage--);
-                            _scrollToTop();
-                          }
-                        : null,
-                    child: Text('previous'.tr()),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left),
+                    onPressed: _currentPage > 0 ? () => setState(() => _currentPage--) : null,
                   ),
-                  const SizedBox(width: 16),
-                  Text(
-                    'page_label'.tr(args: ['${_currentPage + 1}', '${totalPages}']),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(width: 16),
-                  ElevatedButton(
-                    onPressed: (_currentPage + 1) * _itemsPerPage < _filteredNotes.length
-                        ? () {
-                            setState(() => _currentPage++);
-                            _scrollToTop();
-                          }
-                        : null,
-                    child: Text('next'.tr()),
+                  Text('${_currentPage + 1} / $totalPages'),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right),
+                    onPressed: _currentPage < totalPages - 1 ? () => setState(() => _currentPage++) : null,
                   ),
                 ],
               ),
@@ -611,9 +581,9 @@ class _NotesScreenState extends State<NotesScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.green,
-        child: const Icon(Icons.add),
+        backgroundColor: _primaryColor,
         onPressed: () => _showNoteDialog(),
+        child: const Icon(Icons.add),
       ),
     );
   }
