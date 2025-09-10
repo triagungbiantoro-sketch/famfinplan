@@ -16,8 +16,9 @@ class NotesDatabase {
     String path = join(documentsDirectory.path, 'notes.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 3, // versi baru
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -27,29 +28,67 @@ class NotesDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT,
         content TEXT,
-        date TEXT
+        date TEXT,
+        alarmDate TEXT,
+        imagePath TEXT
       )
     ''');
   }
 
-  // CRUD operations
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE notes ADD COLUMN alarmDate TEXT');
+    }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE notes ADD COLUMN imagePath TEXT');
+    }
+  }
+
+  // Insert new note
   Future<int> insertNote(Map<String, dynamic> note) async {
     Database db = await instance.database;
     return await db.insert('notes', note);
   }
 
+  // Get all notes ordered by date DESC
   Future<List<Map<String, dynamic>>> getAllNotes() async {
     Database db = await instance.database;
     return await db.query('notes', orderBy: 'date DESC');
   }
 
+  // Update a note
   Future<int> updateNote(Map<String, dynamic> note) async {
     Database db = await instance.database;
-    return await db.update('notes', note, where: 'id = ?', whereArgs: [note['id']]);
+    return await db.update(
+      'notes',
+      note,
+      where: 'id = ?',
+      whereArgs: [note['id']],
+    );
   }
 
+  // Delete a note
   Future<int> deleteNote(int id) async {
     Database db = await instance.database;
-    return await db.delete('notes', where: 'id = ?', whereArgs: [id]);
+    return await db.delete(
+      'notes',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // Optional: Get a single note by ID
+  Future<Map<String, dynamic>?> getNoteById(int id) async {
+    Database db = await instance.database;
+    List<Map<String, dynamic>> results =
+        await db.query('notes', where: 'id = ?', whereArgs: [id]);
+    if (results.isNotEmpty) return results.first;
+    return null;
+  }
+
+  // Optional: Delete all notes
+  Future<int> deleteAllNotes() async {
+    Database db = await instance.database;
+    return await db.delete('notes');
   }
 }

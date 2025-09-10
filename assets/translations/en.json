@@ -110,20 +110,22 @@
   "note_deleted": "Note deleted successfully",
   "add_from_gallery": "Pick from Gallery",
   "add_from_camera": "Take Photo",
-  "cancel_action": "Cancel",
-  
+  "cancel_action": "Cancel",    
   "title": "Title",
   "content": "Content",
   "gallery": "Gallery",
-  "camera": "Camera",  
+  "camera": "Camera", 
+  "note_empty_error": "Title or content cannot be empty!",
+  "save_failed": "Failed to save note!",
   "search_notes": "Search notes...",
   "no_notes": "No notes available",
   "previous": "Previous",
   "next": "Next",
-  "page_label": "Page {} of {}",
+  "page_label": "Page {0} of {1}",
   "title_label": "Title",
   "date_label": "Date",
-  "content_label": "Content"
-
+  "content_label": "Content",
+  "alarm_set_for": "Alarm set for {0}",
+  "alarm_failed": "Failed to set alarm"
 
 }

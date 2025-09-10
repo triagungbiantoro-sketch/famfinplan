@@ -7,6 +7,9 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/timezone.dart' as tz;
+
 import '../db/notes_database.dart';
 
 class NotesScreen extends StatefulWidget {
@@ -27,23 +30,37 @@ class _NotesScreenState extends State<NotesScreen> {
   int _currentPage = 0;
   final int _itemsPerPage = 4;
 
+  late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
+
   @override
   void initState() {
     super.initState();
+    _initNotifications();
     _refreshNotes();
     _searchController.addListener(_onSearchChanged);
   }
 
-  Future<void> _refreshNotes({bool scrollToFirst = true}) async {
-    final data = await NotesDatabase.instance.getAllNotes();
-    setState(() {
-      _notes = data.reversed.toList();
-      _filteredNotes = _notes;
-      _expandedMap.clear();
-      _currentPage = 0;
+  void _initNotifications() {
+    flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosInit = DarwinInitializationSettings();
+    const initSettings = InitializationSettings(android: androidInit, iOS: iosInit);
+    flutterLocalNotificationsPlugin.initialize(initSettings);
+  }
 
-      if (scrollToFirst) _scrollToTop();
-    });
+  Future<void> _refreshNotes({bool scrollToFirst = true}) async {
+    try {
+      final data = await NotesDatabase.instance.getAllNotes();
+      setState(() {
+        _notes = data;
+        _filteredNotes = _notes;
+        _expandedMap.clear();
+        _currentPage = 0;
+        if (scrollToFirst) _scrollToTop();
+      });
+    } catch (e) {
+      print('Error refreshing notes: $e');
+    }
   }
 
   void _scrollToTop() {
@@ -57,7 +74,7 @@ class _NotesScreenState extends State<NotesScreen> {
   }
 
   void _onSearchChanged() {
-    String query = _searchController.text.toLowerCase();
+    final query = _searchController.text.toLowerCase();
     setState(() {
       _filteredNotes = _notes.where((note) {
         final title = (note['title'] ?? '').toString().toLowerCase();
@@ -71,7 +88,9 @@ class _NotesScreenState extends State<NotesScreen> {
   Future<void> _showNoteDialog({Map<String, dynamic>? note}) async {
     final titleController = TextEditingController(text: note?['title'] ?? '');
     final contentController = TextEditingController(text: note?['content'] ?? '');
-    XFile? imageFile;
+    XFile? imageFile = note != null && note['imagePath'] != null && note['imagePath'].isNotEmpty
+        ? XFile(note['imagePath'])
+        : null;
 
     await showDialog(
       context: context,
@@ -127,24 +146,42 @@ class _NotesScreenState extends State<NotesScreen> {
             TextButton(onPressed: () => Navigator.pop(context), child: Text('cancel'.tr())),
             ElevatedButton(
               onPressed: () async {
+                final title = titleController.text.trim();
+                final content = contentController.text.trim();
+
+                if (title.isEmpty && content.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('note_empty_error'.tr())),
+                  );
+                  return;
+                }
+
                 final now = DateTime.now();
                 final newNote = {
-                  'title': titleController.text,
-                  'content': contentController.text,
-                  'date': note?['date'] ?? DateFormat('yyyy-MM-dd HH:mm:ss').format(now),
+                  'title': title,
+                  'content': content,
+                  'date': note == null
+                      ? DateFormat('yyyy-MM-dd HH:mm:ss').format(now)
+                      : note['date'],
+                  'alarmDate': note?['alarmDate'],
                   'imagePath': imageFile?.path ?? note?['imagePath'],
                 };
 
-                if (note == null) {
-                  await NotesDatabase.instance.insertNote(newNote);
-                  _refreshNotes(scrollToFirst: true);
-                } else {
-                  newNote['id'] = note['id'];
-                  await NotesDatabase.instance.updateNote(newNote);
-                  _refreshNotes(scrollToFirst: false);
+                try {
+                  if (note == null) {
+                    await NotesDatabase.instance.insertNote(newNote);
+                  } else {
+                    newNote['id'] = note['id'];
+                    await NotesDatabase.instance.updateNote(newNote);
+                  }
+                  await _refreshNotes(scrollToFirst: true);
+                  Navigator.pop(context);
+                } catch (e) {
+                  print('Error saving note: $e');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('save_failed'.tr())),
+                  );
                 }
-
-                Navigator.pop(context);
               },
               child: Text('save'.tr()),
             ),
@@ -164,7 +201,39 @@ class _NotesScreenState extends State<NotesScreen> {
     }
   }
 
-  void _shareNote(Map<String, dynamic> note) {
+  // Share per note dengan pilihan PDF atau Text
+  void _shareNoteWithOptions(Map<String, dynamic> note) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.picture_as_pdf),
+                title: Text('Share as PDF'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _shareNoteAsPDF(note);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.text_snippet),
+                title: Text('Share as Text'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _shareNoteAsText(note);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _shareNoteAsText(Map<String, dynamic> note) {
     String text =
         '${'title_label'.tr()}: ${note['title'] ?? ''}\n${'date_label'.tr()}: ${_formatDate(note['date'])}\n${'content_label'.tr()}: ${note['content'] ?? ''}';
     final imagePath = note['imagePath'] as String?;
@@ -175,58 +244,102 @@ class _NotesScreenState extends State<NotesScreen> {
     }
   }
 
-  void _shareAllNotes() {
-    String allNotes = _notes.map((n) {
-      return '${'title_label'.tr()}: ${n['title'] ?? ''}\n${'date_label'.tr()}: ${_formatDate(n['date'])}\n${'content_label'.tr()}: ${n['content'] ?? ''}';
-    }).join('\n\n---\n\n');
-
-    final List<XFile> files = _notes
-        .where((n) => (n['imagePath'] as String?)?.isNotEmpty ?? false)
-        .map((n) => XFile(n['imagePath']!))
-        .toList();
-
-    if (files.isNotEmpty) {
-      Share.shareXFiles(files, text: allNotes);
-    } else {
-      Share.share(allNotes);
-    }
-  }
-
-  void _exportNotesToPDF() async {
+  void _shareNoteAsPDF(Map<String, dynamic> note) async {
     final pdf = pw.Document();
+
     pdf.addPage(
-      pw.MultiPage(
-        build: (context) => _notes.map((note) {
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (context) {
           final List<pw.Widget> contentWidgets = [
             pw.Text('${'title_label'.tr()}: ${note['title'] ?? ''}',
-                style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
             pw.Text('${'date_label'.tr()}: ${_formatDate(note['date'])}',
                 style: pw.TextStyle(fontSize: 12, color: PdfColors.grey)),
-            pw.SizedBox(height: 5),
-            pw.Text('${'content_label'.tr()}: ${note['content'] ?? ''}'),
+            pw.SizedBox(height: 12),
+            pw.Text('${'content_label'.tr()}: ${note['content'] ?? ''}', style: pw.TextStyle(fontSize: 14)),
           ];
 
           final imagePath = note['imagePath'] as String?;
-          if (imagePath?.isNotEmpty ?? false) {
-            contentWidgets.add(pw.SizedBox(height: 8));
-            final file = File(imagePath!);
+          if (imagePath != null && imagePath.isNotEmpty) {
+            final file = File(imagePath);
             if (file.existsSync()) {
               final image = pw.MemoryImage(file.readAsBytesSync());
+              contentWidgets.add(pw.SizedBox(height: 12));
               contentWidgets.add(pw.Image(image, width: 200, height: 200));
             }
           }
 
-          contentWidgets.add(pw.Divider());
+          return pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: contentWidgets);
+        },
+      ),
+    );
 
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: contentWidgets,
-          );
+    final outputDir = Directory.systemTemp;
+    final file = File('${outputDir.path}/note_${note['id'] ?? DateTime.now().millisecondsSinceEpoch}.pdf');
+    await file.writeAsBytes(await pdf.save());
+
+    await Share.shareXFiles([XFile(file.path)], text: 'Note PDF');
+  }
+
+  void _shareAllNotes() async {
+    if (_notes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('no_notes_to_share'.tr())),
+      );
+      return;
+    }
+
+    final pdf = pw.Document();
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(16),
+        header: (context) => pw.Container(
+          alignment: pw.Alignment.center,
+          margin: const pw.EdgeInsets.only(bottom: 10),
+          child: pw.Text('notes'.tr(), style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+        ),
+        footer: (context) => pw.Container(
+          alignment: pw.Alignment.centerRight,
+          margin: const pw.EdgeInsets.only(top: 10),
+          child: pw.Text('Page ${context.pageNumber} / ${context.pagesCount}',
+              style: pw.TextStyle(fontSize: 12, color: PdfColors.grey)),
+        ),
+        build: (context) => _notes.map((note) {
+          final List<pw.Widget> contentWidgets = [
+            pw.Text('${'title_label'.tr()}: ${note['title'] ?? ''}',
+                style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 4),
+            pw.Text('${'date_label'.tr()}: ${_formatDate(note['date'])}',
+                style: pw.TextStyle(fontSize: 12, color: PdfColors.grey)),
+            pw.SizedBox(height: 8),
+            pw.Text('${'content_label'.tr()}: ${note['content'] ?? ''}', style: pw.TextStyle(fontSize: 14)),
+          ];
+
+          final imagePath = note['imagePath'] as String?;
+          if (imagePath != null && imagePath.isNotEmpty) {
+            final file = File(imagePath);
+            if (file.existsSync()) {
+              final image = pw.MemoryImage(file.readAsBytesSync());
+              contentWidgets.add(pw.SizedBox(height: 8));
+              contentWidgets.add(pw.Image(image, width: 200, height: 200));
+            }
+          }
+
+          contentWidgets.add(pw.Divider(height: 20));
+
+          return pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: contentWidgets);
         }).toList(),
       ),
     );
 
-    await Printing.layoutPdf(onLayout: (format) async => pdf.save());
+    final outputDir = Directory.systemTemp;
+    final file = File('${outputDir.path}/notes_${DateTime.now().millisecondsSinceEpoch}.pdf');
+    await file.writeAsBytes(await pdf.save());
+
+    await Share.shareXFiles([XFile(file.path)], text: 'Notes PDF');
   }
 
   List<Map<String, dynamic>> _getCurrentPageItems() {
@@ -235,6 +348,72 @@ class _NotesScreenState extends State<NotesScreen> {
     if (start > _filteredNotes.length) start = _filteredNotes.length;
     if (end > _filteredNotes.length) end = _filteredNotes.length;
     return _filteredNotes.sublist(start, end);
+  }
+
+  Future<void> _scheduleAlarm(Map<String, dynamic> note) async {
+    try {
+      final now = DateTime.now();
+      DateTime? selectedDate = await showDatePicker(
+        context: context,
+        initialDate: now,
+        firstDate: now,
+        lastDate: DateTime(now.year + 5),
+      );
+
+      if (selectedDate == null) return;
+
+      TimeOfDay? selectedTime = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.now(),
+      );
+
+      if (selectedTime == null) return;
+
+      final scheduledDate = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        selectedTime.hour,
+        selectedTime.minute,
+      );
+
+      tz.TZDateTime scheduledTZDate = tz.TZDateTime.from(scheduledDate, tz.local);
+
+      if (scheduledTZDate.isBefore(tz.TZDateTime.now(tz.local))) {
+        scheduledTZDate = scheduledTZDate.add(const Duration(days: 1));
+      }
+
+      const androidDetails = AndroidNotificationDetails(
+        'note_alarm_channel',
+        'Note Alarm',
+        channelDescription: 'Channel for note reminders',
+        importance: Importance.max,
+        priority: Priority.high,
+      );
+      const iosDetails = DarwinNotificationDetails();
+      final notificationDetails = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        note['id'] ?? DateTime.now().millisecondsSinceEpoch,
+        note['title'],
+        note['content'],
+        scheduledTZDate,
+        notificationDetails,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.wallClockTime,
+        androidAllowWhileIdle: true,
+      );
+
+      note['alarmDate'] = scheduledTZDate.toIso8601String();
+      await NotesDatabase.instance.updateNote(note);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('alarm_set_for'.tr(args: [_formatDate(scheduledTZDate.toString())]))),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('alarm_failed'.tr())),
+      );
+    }
   }
 
   @override
@@ -256,7 +435,11 @@ class _NotesScreenState extends State<NotesScreen> {
         title: Text('notes'.tr(), style: const TextStyle(color: Colors.white)),
         actions: [
           IconButton(icon: const Icon(Icons.share), onPressed: _shareAllNotes, color: Colors.white),
-          IconButton(icon: const Icon(Icons.picture_as_pdf), onPressed: _exportNotesToPDF, color: Colors.white),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            onPressed: _shareAllNotes,
+            color: Colors.white,
+          ),
         ],
       ),
       body: Column(
@@ -327,19 +510,47 @@ class _NotesScreenState extends State<NotesScreen> {
                                   const SizedBox(height: 8),
                                   Text(note['content'] ?? '', style: const TextStyle(fontSize: 14)),
                                   if (imagePath?.isNotEmpty ?? false)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 8.0),
+                                    GestureDetector(
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => Scaffold(
+                                              backgroundColor: Colors.black,
+                                              appBar: AppBar(
+                                                backgroundColor: Colors.black,
+                                                leading: IconButton(
+                                                  icon: const Icon(Icons.arrow_back),
+                                                  color: Colors.white,
+                                                  onPressed: () => Navigator.pop(context),
+                                                ),
+                                              ),
+                                              body: Center(
+                                                child: InteractiveViewer(
+                                                  child: Image.file(File(imagePath!)),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
                                       child: Image.file(File(imagePath!), height: 100),
                                     ),
+
                                 ],
                                 const SizedBox(height: 8),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.end,
                                   children: [
                                     IconButton(
+                                      icon: const Icon(Icons.alarm),
+                                      color: Colors.purple,
+                                      onPressed: () => _scheduleAlarm(note),
+                                    ),
+                                    IconButton(
                                       icon: const Icon(Icons.share),
                                       color: _primaryColor,
-                                      onPressed: () => _shareNote(note),
+                                      onPressed: () => _shareNoteWithOptions(note),
                                     ),
                                     IconButton(
                                       icon: const Icon(Icons.edit),
@@ -381,7 +592,7 @@ class _NotesScreenState extends State<NotesScreen> {
                   ),
                   const SizedBox(width: 16),
                   Text(
-                    'page_label'.tr(args: ['${_currentPage + 1}', '$totalPages']),
+                    'page_label'.tr(args: ['${_currentPage + 1}', '${totalPages}']),
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(width: 16),

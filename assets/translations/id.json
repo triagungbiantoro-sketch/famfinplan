@@ -116,17 +116,16 @@
   "add_from_gallery": "Pilih dari Galeri",
   "add_from_camera": "Ambil Foto",
   "cancel_action": "Batal", 
-  "save_action": "Simpan",
- 
-  "title": "Judul",
-  "content": "Konten",
-  "gallery": "Galeri",
-  "camera": "Kamera",  
+  "save_action": "Simpan",   
+  "note_empty_error": "Judul atau isi tidak boleh kosong!",
+  "save_failed": "Gagal menyimpan catatan!",
   "search_notes": "Cari catatan...",  
   "previous": "Sebelumnya",
-  "next": "Selanjutnya",
+  "next": "Berikutnya",
   "page_label": "Halaman {} dari {}",
   "title_label": "Judul",
   "date_label": "Tanggal",
-  "content_label": "Konten"
+  "content_label": "Isi",
+  "alarm_set_for": "Alarm diatur untuk {}",
+  "alarm_failed": "Gagal mengatur alarm"
 }
