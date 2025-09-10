@@ -42,6 +42,7 @@ dependencies:
   pdf: ^3.11.3
   printing: ^5.14.2
   share_plus: ^10.0.0
+  image_picker: ^0.8.7+5
   
   
 

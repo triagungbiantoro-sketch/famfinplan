@@ -5,6 +5,7 @@ import 'income_screen.dart';
 import 'expense_screen.dart';
 import 'budgeting_screen.dart';
 import 'settings_screen.dart';
+import 'notes_screen.dart'; // import NotesScreen
 import 'summary_card.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -40,6 +41,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const ExpenseScreen()),
+          );
+        },
+      ),
+      _DashboardMenu(
+        icon: Icons.note,
+        label: tr("notes"),
+        color: Colors.teal,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const NotesScreen()),
           );
         },
       ),

@@ -71,7 +71,7 @@
   "edit": "Edit",
   "realized": "Realized",
   "pending": "Pending",
-
+  
   "vehicle": "Vehicle",
   "vehicle_info": "Vehicle Info",
   "vehicle_type": "Vehicle Type",
@@ -91,6 +91,39 @@
   "add": "Add",
   "update": "Update",
   "vehicle_saved": "Vehicle saved!",
-  "vehicle_updated": "Vehicle updated!"
+  "vehicle_updated": "Vehicle updated!",
+
+  "notes": "Notes",
+  "add_note": "Add Note",
+  "edit_note": "Edit Note",
+  "delete_note": "Delete Note",
+  "note_title": "Title",
+  "note_content": "Content",
+  "note_date": "Date",
+  "note_image": "Image",
+  "search_note": "Search notes...",  
+  "share_note": "Share Note",
+  "share_all_notes": "Share All Notes",
+  "export_pdf": "Export to PDF",
+  "note_saved": "Note saved successfully",
+  "note_updated": "Note updated successfully",
+  "note_deleted": "Note deleted successfully",
+  "add_from_gallery": "Pick from Gallery",
+  "add_from_camera": "Take Photo",
+  "cancel_action": "Cancel",
   
+  "title": "Title",
+  "content": "Content",
+  "gallery": "Gallery",
+  "camera": "Camera",  
+  "search_notes": "Search notes...",
+  "no_notes": "No notes available",
+  "previous": "Previous",
+  "next": "Next",
+  "page_label": "Page {} of {}",
+  "title_label": "Title",
+  "date_label": "Date",
+  "content_label": "Content"
+
+
 }

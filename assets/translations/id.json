@@ -71,7 +71,7 @@
   "edit": "Edit",
   "realized": "Terealisasi",
   "pending": "Belum Realisasi",
-
+  
   "vehicle": "Kendaraan",
   "vehicle_info": "Info Kendaraan",
   "vehicle_type": "Tipe Kendaraan",
@@ -95,5 +95,38 @@
   "expenses": "Pengeluaran", 
   "total_expense_this_month": "Total Pengeluaran Bulan Ini",
   "total_income_this_month": "Total Pemasukan Bulan Ini",
-  "no_vehicles": "Belum ada kendaraan."
+  "no_vehicles": "Belum ada kendaraan.",
+  
+  "notes": "Catatan",
+  "add_note": "Tambah Catatan",
+  "edit_note": "Edit Catatan",
+  "delete_note": "Hapus Catatan",
+  "note_title": "Judul",
+  "note_content": "Isi",
+  "note_date": "Tanggal",
+  "note_image": "Gambar",
+  "search_note": "Cari catatan...",
+  "no_notes": "Belum ada catatan",
+  "share_note": "Bagikan Catatan",
+  "share_all_notes": "Bagikan Semua Catatan",
+  "export_pdf": "Ekspor ke PDF",
+  "note_saved": "Catatan berhasil disimpan",
+  "note_updated": "Catatan berhasil diperbarui",
+  "note_deleted": "Catatan berhasil dihapus",
+  "add_from_gallery": "Pilih dari Galeri",
+  "add_from_camera": "Ambil Foto",
+  "cancel_action": "Batal", 
+  "save_action": "Simpan",
+ 
+  "title": "Judul",
+  "content": "Konten",
+  "gallery": "Galeri",
+  "camera": "Kamera",  
+  "search_notes": "Cari catatan...",  
+  "previous": "Sebelumnya",
+  "next": "Selanjutnya",
+  "page_label": "Halaman {} dari {}",
+  "title_label": "Judul",
+  "date_label": "Tanggal",
+  "content_label": "Konten"
 }
