@@ -92,6 +92,8 @@
   "update": "Perbarui",
   "vehicle_saved": "Kendaraan tersimpan!",
   "vehicle_updated": "Kendaraan diperbarui!",
-  "expenses": "Pengeluaran",
+  "expenses": "Pengeluaran", 
+  "total_expense_this_month": "Total Pengeluaran Bulan Ini",
+  "total_income_this_month": "Total Pemasukan Bulan Ini",
   "no_vehicles": "Belum ada kendaraan."
 }

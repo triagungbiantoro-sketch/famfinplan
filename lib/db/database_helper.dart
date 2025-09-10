@@ -274,6 +274,22 @@ class DatabaseHelper {
     return {'id': id, 'totalBudget': 0.0, 'usedBudget': 0.0, 'monthYear': m};
   }
 
+  Future<List<Map<String, dynamic>>> getAllBudgets() async {
+    final db = await database;
+    return await db.query('budget', orderBy: 'monthYear DESC');
+  }
+
+  Future<int> addBudget(double totalBudget, {DateTime? month}) async {
+    final db = await database;
+    final m = _formatMonth(month ?? DateTime.now());
+    final existing = await getBudget(month: month);
+    if (existing != null) {
+      return await db.update('budget', {'totalBudget': totalBudget}, where: 'id = ?', whereArgs: [existing['id']]);
+    } else {
+      return await db.insert('budget', {'totalBudget': totalBudget, 'usedBudget': 0, 'monthYear': m});
+    }
+  }
+
   Future<void> setBudget(double totalBudget, {DateTime? month}) async {
     final db = await database;
     final m = _formatMonth(month ?? DateTime.now());
@@ -286,8 +302,7 @@ class DatabaseHelper {
         whereArgs: [existing['id']],
       );
     } else {
-      await db.insert('budget',
-          {'totalBudget': totalBudget, 'usedBudget': 0, 'monthYear': m});
+      await db.insert('budget', {'totalBudget': totalBudget, 'usedBudget': 0, 'monthYear': m});
     }
     await db.delete('budget_usage', where: 'monthYear = ?', whereArgs: [m]);
     dataChanged.value = !dataChanged.value;
@@ -297,8 +312,7 @@ class DatabaseHelper {
     final db = await database;
     final existing = await getBudget(month: month);
     if (existing != null) {
-      await db.update('budget', {'totalBudget': totalBudget},
-          where: 'id = ?', whereArgs: [existing['id']]);
+      await db.update('budget', {'totalBudget': totalBudget}, where: 'id = ?', whereArgs: [existing['id']]);
       dataChanged.value = !dataChanged.value;
     }
   }
@@ -354,12 +368,10 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getBudgetUsage({DateTime? month}) async {
     final db = await database;
     final m = _formatMonth(month ?? DateTime.now());
-    return await db.query('budget_usage',
-        where: 'monthYear = ?', whereArgs: [m], orderBy: "date DESC");
+    return await db.query('budget_usage', where: 'monthYear = ?', whereArgs: [m], orderBy: "date DESC");
   }
 
-  Future<void> addBudgetUsage(double amount, String? note,
-      {DateTime? month, DateTime? notifyAt}) async {
+  Future<void> addBudgetUsage(double amount, String? note, {DateTime? month, DateTime? notifyAt}) async {
     final db = await database;
     final now = DateTime.now();
     final m = _formatMonth(month ?? now);
@@ -375,36 +387,23 @@ class DatabaseHelper {
     final budget = await getBudget(month: month);
     if (budget != null) {
       double used = (budget['usedBudget'] ?? 0).toDouble() + amount;
-      await db.update('budget', {'usedBudget': used},
-          where: 'id = ?', whereArgs: [budget['id']]);
+      await db.update('budget', {'usedBudget': used}, where: 'id = ?', whereArgs: [budget['id']]);
     }
     dataChanged.value = !dataChanged.value;
   }
 
-  Future<void> updateBudgetUsage(int id, double newAmount, String? note,
-      {DateTime? month, DateTime? notifyAt}) async {
+  Future<void> updateBudgetUsage(int id, double newAmount, String? note, {DateTime? month, DateTime? notifyAt}) async {
     final db = await database;
     final old = await db.query('budget_usage', where: 'id = ?', whereArgs: [id]);
     if (old.isEmpty) return;
 
     final oldAmount = (old.first['amount'] as num).toDouble();
-
-    await db.update(
-      'budget_usage',
-      {
-        'amount': newAmount,
-        'note': note,
-        'notify_at': notifyAt?.toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.update('budget_usage', {'amount': newAmount, 'note': note, 'notify_at': notifyAt?.toIso8601String()}, where: 'id = ?', whereArgs: [id]);
 
     final budget = await getBudget(month: month);
     if (budget != null) {
       double used = (budget['usedBudget'] ?? 0).toDouble() - oldAmount + newAmount;
-      await db.update('budget', {'usedBudget': used},
-          where: 'id = ?', whereArgs: [budget['id']]);
+      await db.update('budget', {'usedBudget': used}, where: 'id = ?', whereArgs: [budget['id']]);
     }
     dataChanged.value = !dataChanged.value;
   }
@@ -415,27 +414,19 @@ class DatabaseHelper {
     if (usage.isEmpty) return;
 
     final amount = (usage.first['amount'] as num).toDouble();
-
     await db.delete('budget_usage', where: 'id = ?', whereArgs: [id]);
 
     final budget = await getBudget(month: month);
     if (budget != null) {
       double used = (budget['usedBudget'] ?? 0).toDouble() - amount;
-      await db.update('budget', {'usedBudget': used},
-          where: 'id = ?', whereArgs: [budget['id']]);
+      await db.update('budget', {'usedBudget': used}, where: 'id = ?', whereArgs: [budget['id']]);
     }
     dataChanged.value = !dataChanged.value;
   }
 
-  Future<void> updateBudgetUsageRealized(int id, bool realized,
-      {DateTime? month}) async {
+  Future<void> updateBudgetUsageRealized(int id, bool realized, {DateTime? month}) async {
     final db = await database;
-    await db.update(
-      'budget_usage',
-      {'realized': realized ? 1 : 0},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.update('budget_usage', {'realized': realized ? 1 : 0}, where: 'id = ?', whereArgs: [id]);
     dataChanged.value = !dataChanged.value;
   }
 
@@ -447,18 +438,10 @@ class DatabaseHelper {
     double totalIncome = 0.0;
     double totalExpense = 0.0;
 
-    for (var inc in incomes) {
-      totalIncome += (inc['amount'] as num).toDouble();
-    }
+    for (var inc in incomes) totalIncome += (inc['amount'] as num).toDouble();
+    for (var exp in expenses) totalExpense += (exp['amount'] as num).toDouble();
 
-    for (var exp in expenses) {
-      totalExpense += (exp['amount'] as num).toDouble();
-    }
-
-    return {
-      'income': totalIncome,
-      'expense': totalExpense,
-    };
+    return {'income': totalIncome, 'expense': totalExpense};
   }
 
   // -------------------- HELPERS --------------------

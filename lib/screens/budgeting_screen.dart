@@ -55,23 +55,27 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
   void _updateCurrency(String value) {
     setState(() {
       _currencyCode = value.split(" ")[0];
-      _currencySymbol = value.split(" ")[1].replaceAll("(", "").replaceAll(")", "");
+      _currencySymbol =
+          value.split(" ")[1].replaceAll("(", "").replaceAll(")", "");
     });
   }
 
   String _formatCurrency(double value) {
     final locale = _currencyCode == "IDR" ? "id_ID" : "en_US";
-    return NumberFormat.currency(locale: locale, symbol: _currencySymbol, decimalDigits: 0)
+    return NumberFormat.currency(
+            locale: locale, symbol: _currencySymbol, decimalDigits: 0)
         .format(value);
   }
 
   Future<void> _loadBudget() async {
-    final budgetData = await DatabaseHelper.instance.getBudget(month: _selectedMonth);
+    final budgetData =
+        await DatabaseHelper.instance.getBudget(month: _selectedMonth);
     setState(() {
       _totalBudget = (budgetData?['totalBudget'] ?? 0).toDouble();
       _usedBudget = (budgetData?['usedBudget'] ?? 0).toDouble();
     });
-    final usageData = await DatabaseHelper.instance.getBudgetUsage(month: _selectedMonth);
+    final usageData =
+        await DatabaseHelper.instance.getBudgetUsage(month: _selectedMonth);
     setState(() {
       _usageList
         ..clear()
@@ -81,7 +85,8 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
 
   void _changeMonth(int offset) {
     setState(() {
-      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + offset, 1);
+      _selectedMonth = DateTime(_selectedMonth.year,
+          _selectedMonth.month + offset, 1);
     });
     _loadBudget();
   }
@@ -110,8 +115,10 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
     });
   }
 
-  Future<void> _addUsage({double? amount, String? note, DateTime? notifyAt}) async {
-    final amt = amount ?? double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0;
+  Future<void> _addUsage(
+      {double? amount, String? note, DateTime? notifyAt}) async {
+    final amt = amount ??
+        double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0;
     final nt = note ?? _noteController.text;
     final notify = notifyAt ?? _selectedDateTime;
 
@@ -127,10 +134,12 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
       _selectedDateTime = null;
       await _loadBudget();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("usage_added", args: [_formatCurrency(amt), nt]))),
+        SnackBar(
+            content: Text(tr("usage_added", args: [_formatCurrency(amt), nt]))),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr("budget_exceeded"))));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(tr("budget_exceeded"))));
     }
   }
 
@@ -151,7 +160,8 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom + 16,
@@ -165,14 +175,16 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
             children: [
               Text(
                 isEdit ? tr("edit_usage") : tr("add_usage"),
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: _amountController,
                 decoration: InputDecoration(
                   labelText: tr("usage_amount"),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.money_off),
                 ),
                 keyboardType: TextInputType.number,
@@ -182,7 +194,8 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                 controller: _noteController,
                 decoration: InputDecoration(
                   labelText: tr("note_example"),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   prefixIcon: const Icon(Icons.note_alt),
                 ),
               ),
@@ -192,7 +205,8 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                 label: Text(
                   _selectedDateTime == null
                       ? tr("add_notification_time")
-                      : DateFormat("dd MMM yyyy, HH:mm").format(_selectedDateTime!),
+                      : DateFormat("dd MMM yyyy, HH:mm")
+                          .format(_selectedDateTime!),
                 ),
                 onPressed: _pickDateTime,
               ),
@@ -202,10 +216,12 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                 child: ElevatedButton.icon(
                   onPressed: () async {
                     if (isEdit) {
-                      final newAmount =
-                          double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0;
+                      final newAmount = double.tryParse(
+                              _amountController.text.replaceAll(',', '')) ??
+                          0;
                       final newNote = _noteController.text;
-                      final diff = newAmount - (usage!['amount'] as num).toDouble();
+                      final diff =
+                          newAmount - (usage!['amount'] as num).toDouble();
                       if (_usedBudget + diff <= _totalBudget) {
                         await DatabaseHelper.instance.updateBudgetUsage(
                           usage['id'],
@@ -217,7 +233,11 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                         await _loadBudget();
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(tr("usage_updated", args: [_formatCurrency(newAmount), newNote]))),
+                          SnackBar(
+                              content: Text(tr("usage_updated", args: [
+                            _formatCurrency(newAmount),
+                            newNote
+                          ]))),
                         );
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -230,11 +250,13 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                     }
                   },
                   icon: Icon(isEdit ? Icons.save : Icons.add, color: Colors.white),
-                  label: Text(isEdit ? tr("save") : tr("add_usage"), style: const TextStyle(color: Colors.white)),
+                  label: Text(isEdit ? tr("save") : tr("add_usage"),
+                      style: const TextStyle(color: Colors.white)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.redAccent,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
               ),
@@ -250,7 +272,8 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom + 16,
@@ -262,13 +285,15 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(tr("edit_monthly_budget"),
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             TextField(
               controller: editController,
               decoration: InputDecoration(
                 labelText: tr("monthly_total_budget"),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 prefixIcon: const Icon(Icons.account_balance_wallet),
               ),
               keyboardType: TextInputType.number,
@@ -278,22 +303,99 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.save, color: Colors.white),
-                label: Text(tr("save"), style: const TextStyle(color: Colors.white)),
+                label:
+                    Text(tr("save"), style: const TextStyle(color: Colors.white)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.redAccent,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: () async {
-                  final newTotal =
-                      double.tryParse(editController.text.replaceAll(',', '')) ?? _totalBudget;
+                  final newTotal = double.tryParse(
+                          editController.text.replaceAll(',', '')) ??
+                      _totalBudget;
                   if (newTotal >= _usedBudget) {
-                    await DatabaseHelper.instance.updateBudgetTotal(newTotal, month: _selectedMonth);
+                    await DatabaseHelper.instance.updateBudgetTotal(newTotal,
+                        month: _selectedMonth);
                     await _loadBudget();
                     Navigator.pop(context);
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text(tr("total_less_than_used"))),
+                    );
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // === ADD BUDGET SHEET ===
+  void _showAddBudgetSheet() {
+    final addController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            left: 16,
+            right: 16,
+            top: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(tr("add_monthly_budget"),
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: addController,
+              decoration: InputDecoration(
+                labelText: tr("monthly_total_budget"),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                prefixIcon: const Icon(Icons.account_balance_wallet),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.add, color: Colors.white),
+                label: Text(tr("add_budget"),
+                    style: const TextStyle(color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueAccent,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () async {
+                  final newTotal =
+                      double.tryParse(addController.text.replaceAll(',', '')) ??
+                          0;
+                  if (newTotal > 0) {
+                    await DatabaseHelper.instance.addBudget(newTotal,
+                        month: _selectedMonth);
+                    await _loadBudget();
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text(
+                              tr("budget_added", args: [_formatCurrency(newTotal)]))),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(tr("invalid_budget"))),
                     );
                   }
                 },
@@ -313,14 +415,17 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
 
   Future<void> _shareBudgetSummary() async {
     final buffer = StringBuffer();
-    buffer.writeln("${tr("monthly_budget_summary")}: ${DateFormat.yMMM().format(_selectedMonth)}");
+    buffer.writeln(
+        "${tr("monthly_budget_summary")}: ${DateFormat.yMMM().format(_selectedMonth)}");
     buffer.writeln("${tr("total_budget")}: ${_formatCurrency(_totalBudget)}");
     buffer.writeln("${tr("used")}: ${_formatCurrency(_usedBudget)}");
-    buffer.writeln("${tr("remaining")}: ${_formatCurrency(_totalBudget - _usedBudget)}");
+    buffer.writeln(
+        "${tr("remaining")}: ${_formatCurrency(_totalBudget - _usedBudget)}");
     buffer.writeln("\n${tr("usage_list")}:");
     for (var usage in _usageList) {
       final dateText = usage['notify_at'] != null
-          ? DateFormat("dd/MM/yyyy HH:mm").format(DateTime.parse(usage['notify_at']))
+          ? DateFormat("dd/MM/yyyy HH:mm")
+              .format(DateTime.parse(usage['notify_at']))
           : "-";
       buffer.writeln(
           "${_formatCurrency((usage['amount'] as num).toDouble())} - ${usage['note'] ?? ""} ($dateText)");
@@ -332,12 +437,14 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
   @override
   Widget build(BuildContext context) {
     final double remaining = _totalBudget - _usedBudget;
-    final double progress = _totalBudget > 0 ? (_usedBudget / _totalBudget).clamp(0.0, 1.0) : 0.0;
+    final double progress =
+        _totalBudget > 0 ? (_usedBudget / _totalBudget).clamp(0.0, 1.0) : 0.0;
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: Text(tr("budget_planning"), style: const TextStyle(color: Colors.white)),
+        title:
+            Text(tr("budget_planning"), style: const TextStyle(color: Colors.white)),
         backgroundColor: Colors.redAccent,
         centerTitle: true,
       ),
@@ -349,9 +456,15 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                IconButton(icon: const Icon(Icons.arrow_left), onPressed: () => _changeMonth(-1)),
-                Text(DateFormat.yMMM().format(_selectedMonth), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                IconButton(icon: const Icon(Icons.arrow_right), onPressed: () => _changeMonth(1)),
+                IconButton(
+                    icon: const Icon(Icons.arrow_left),
+                    onPressed: () => _changeMonth(-1)),
+                Text(DateFormat.yMMM().format(_selectedMonth),
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
+                IconButton(
+                    icon: const Icon(Icons.arrow_right),
+                    onPressed: () => _changeMonth(1)),
               ],
             ),
           ),
@@ -359,7 +472,8 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
           // Budget Summary Card
           Card(
             margin: const EdgeInsets.symmetric(horizontal: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             color: Colors.red.shade100,
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -372,7 +486,8 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                       Expanded(
                         child: Text(
                           tr("monthly_budget_summary"),
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -383,7 +498,11 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  LinearProgressIndicator(value: progress, backgroundColor: Colors.grey[300], color: _getProgressColor(progress), minHeight: 12),
+                  LinearProgressIndicator(
+                      value: progress,
+                      backgroundColor: Colors.grey[300],
+                      color: _getProgressColor(progress),
+                      minHeight: 12),
                   const SizedBox(height: 8),
                   Text(
                     "${tr("used")}: ${_formatCurrency(_usedBudget)} | ${tr("remaining")}: ${_formatCurrency(remaining)}",
@@ -405,13 +524,15 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                     itemBuilder: (context, index) {
                       final usage = _usageList[index];
                       final dateText = usage['notify_at'] != null
-                          ? DateFormat("dd/MM/yyyy HH:mm").format(DateTime.parse(usage['notify_at']))
+                          ? DateFormat("dd/MM/yyyy HH:mm")
+                              .format(DateTime.parse(usage['notify_at']))
                           : "-";
                       final realized = (usage['realized'] ?? 0) == 1;
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
                         elevation: 3,
                         child: Padding(
                           padding: const EdgeInsets.all(8.0),
@@ -420,8 +541,10 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                             children: [
                               CircleAvatar(
                                 radius: 24,
-                                backgroundColor: Colors.redAccent.withOpacity(0.2),
-                                child: const Icon(Icons.money_off, color: Colors.redAccent),
+                                backgroundColor:
+                                    Colors.redAccent.withOpacity(0.2),
+                                child: const Icon(Icons.money_off,
+                                    color: Colors.redAccent),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -429,28 +552,34 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      _formatCurrency((usage['amount'] as num).toDouble()),
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                      _formatCurrency(
+                                          (usage['amount'] as num).toDouble()),
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16),
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(height: 4),
                                     if ((usage['note'] ?? "").isNotEmpty)
                                       Text(
                                         usage['note'] ?? "",
-                                        style: const TextStyle(color: Colors.black54),
+                                        style:
+                                            const TextStyle(color: Colors.black54),
                                         overflow: TextOverflow.ellipsis,
                                         maxLines: 2,
                                       ),
                                     Text(
                                       dateText,
-                                      style: const TextStyle(fontSize: 12, color: Colors.black45),
+                                      style: const TextStyle(
+                                          fontSize: 12, color: Colors.black45),
                                     ),
                                     Row(
                                       children: [
                                         Checkbox(
                                           value: realized,
                                           onChanged: (_) async {
-                                            await DatabaseHelper.instance.updateBudgetUsageRealized(
+                                            await DatabaseHelper.instance
+                                                .updateBudgetUsageRealized(
                                               usage['id'],
                                               !realized,
                                               month: _selectedMonth,
@@ -474,15 +603,19 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.edit, color: Colors.orange),
-                                    onPressed: () => _showAddUsageSheet(usage: usage),
+                                    icon: const Icon(Icons.edit,
+                                        color: Colors.orange),
+                                    onPressed: () =>
+                                        _showAddUsageSheet(usage: usage),
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(),
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.delete, color: Colors.red),
                                     onPressed: () async {
-                                      await DatabaseHelper.instance.deleteBudgetUsage(usage['id'], month: _selectedMonth);
+                                      await DatabaseHelper.instance
+                                          .deleteBudgetUsage(usage['id'],
+                                              month: _selectedMonth);
                                       await _loadBudget();
                                     },
                                     padding: EdgeInsets.zero,
@@ -499,25 +632,28 @@ class _BudgetingScreenState extends State<BudgetingScreen> {
           ),
         ],
       ),
-      floatingActionButton: Stack(
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Align(
-            alignment: Alignment.bottomRight,
-            child: FloatingActionButton(
-              heroTag: "addUsage",
-              onPressed: () => _showAddUsageSheet(),
-              backgroundColor: Colors.redAccent,
-              child: const Icon(Icons.add, color: Colors.white),
-            ),
+          FloatingActionButton(
+            heroTag: "addUsage",
+            onPressed: () => _showAddUsageSheet(),
+            backgroundColor: Colors.redAccent,
+            child: const Icon(Icons.add, color: Colors.white),
           ),
-          Align(
-            alignment: Alignment.bottomLeft,
-            child: FloatingActionButton(
-              heroTag: "shareBudget",
-              onPressed: _shareBudgetSummary,
-              backgroundColor: Colors.green,
-              child: const Icon(Icons.share, color: Colors.white),
-            ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: "addBudget",
+            onPressed: _showAddBudgetSheet,
+            backgroundColor: Colors.blueAccent,
+            child: const Icon(Icons.account_balance_wallet, color: Colors.white),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: "shareBudget",
+            onPressed: _shareBudgetSummary,
+            backgroundColor: Colors.green,
+            child: const Icon(Icons.share, color: Colors.white),
           ),
         ],
       ),

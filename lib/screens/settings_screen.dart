@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../db/database_helper.dart';
 import '../main.dart';
 import 'settings_notifier.dart';
+import '../services/export_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -287,6 +288,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _shareDatabase() async {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.share, color: Colors.blue),
+            title: Text(tr("share_database")),
+            onTap: () async {
+              Navigator.pop(context);
+              try {
+                final databasesPath = await getDatabasesPath();
+                final dbPath = p.join(databasesPath, 'famfinplan.db');
+                final dbFile = File(dbPath);
+
+                if (!await dbFile.exists()) throw Exception("Database tidak ditemukan");
+
+                await ExportService.shareFile(dbFile.path, text: tr("share_database"));
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("${tr("share_failed")}: $e")),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCard(String title, IconData icon, Widget child) {
     return Card(
       elevation: 2,
@@ -376,6 +411,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onTap: _restoreDatabase,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     tileColor: Colors.orange[50],
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    leading: const Icon(Icons.share, color: Colors.blueAccent),
+                    title: Text(tr("share_database")),
+                    onTap: _shareDatabase,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    tileColor: Colors.blue[50],
                   ),
                   const SizedBox(height: 8),
                   ListTile(
