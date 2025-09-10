@@ -5,8 +5,9 @@ import 'income_screen.dart';
 import 'expense_screen.dart';
 import 'budgeting_screen.dart';
 import 'settings_screen.dart';
-import 'notes_screen.dart'; // import NotesScreen
+import 'notes_screen.dart';
 import 'summary_card.dart';
+import 'pedometer_screen.dart'; // ✅ import PedometerScreen
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -63,6 +64,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const BudgetingScreen()),
+          );
+        },
+      ),
+      _DashboardMenu(
+        icon: Icons.favorite, // ✅ ikon langkah/pedometer
+        label: "Pedometer",   // bisa juga pakai tr("pedometer") kalau ditambah di translation
+        color: Colors.pink,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PedometerScreen()),
           );
         },
       ),

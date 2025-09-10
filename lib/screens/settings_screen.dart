@@ -1,13 +1,18 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqflite/sqflite.dart';
 import 'package:path_provider/path_provider.dart';
-import '../db/database_helper.dart';
 import '../main.dart';
 import 'settings_notifier.dart';
 import '../services/export_service.dart';
+import '../db/database_helper.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -60,10 +65,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _backupDatabase() async {
-    try {
+  /// Ambil path sesuai database
+  Future<String> _getDatabasePath(String dbName) async {
+    if (dbName == 'notes.db') {
+      final appDocDir = await getApplicationDocumentsDirectory();
+      return p.join(appDocDir.path, dbName);
+    } else {
       final databasesPath = await getDatabasesPath();
-      final dbPath = p.join(databasesPath, 'famfinplan.db');
+      return p.join(databasesPath, dbName);
+    }
+  }
+
+  Future<void> _backupDatabase(String dbName) async {
+    try {
+      final dbPath = await _getDatabasePath(dbName);
       final dbFile = File(dbPath);
 
       if (!await dbFile.exists()) throw Exception("Database tidak ditemukan");
@@ -72,32 +87,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final backupDir = Directory(p.join(appDir.path, 'backups'));
       if (!await backupDir.exists()) await backupDir.create(recursive: true);
 
-      final backupPath = p.join(
-        backupDir.path,
-        'famfinplan_backup_${DateTime.now().millisecondsSinceEpoch}.db',
-      );
+      final backupPath =
+          p.join(backupDir.path, '${dbName}_backup_${DateTime.now().millisecondsSinceEpoch}.db');
 
       await dbFile.copy(backupPath);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("backup_success") + ": $backupPath")),
+        SnackBar(content: Text("${tr("backup_success")}: $backupPath")),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("backup_failed") + ": $e")),
+        SnackBar(content: Text("${tr("backup_failed")}: $e")),
       );
     }
   }
 
-  Future<void> _restoreDatabase() async {
+  Future<void> _backupAllDatabases() async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final backupDir = Directory(p.join(appDir.path, 'backups'));
+      if (!await backupDir.exists()) await backupDir.create(recursive: true);
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final zipFileName = 'all_databases_backup_$timestamp.zip';
+      final zipFilePath = p.join(backupDir.path, zipFileName);
+
+      final encoder = ZipFileEncoder();
+      encoder.create(zipFilePath);
+
+      final dbFiles = [
+        'famfinplan.db',
+        'notes.db',
+      ];
+
+      for (var dbName in dbFiles) {
+        final dbPath = await _getDatabasePath(dbName);
+        final dbFile = File(dbPath);
+        if (await dbFile.exists()) {
+          encoder.addFile(dbFile);
+        }
+      }
+
+      encoder.close();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${tr("backup_success")}: Semua database dibackup di $zipFilePath")),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${tr("backup_failed")}: $e")),
+      );
+    }
+  }
+
+  Future<void> _restoreDatabase(String dbName) async {
     try {
       final appDir = await getApplicationDocumentsDirectory();
       final backupDir = Directory(p.join(appDir.path, 'backups'));
       if (!await backupDir.exists()) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr("restore_failed") + ": Folder backup tidak ada")),
+          SnackBar(content: Text("${tr("restore_failed")}: Folder backup tidak ada")),
         );
         return;
       }
@@ -105,13 +158,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final files = backupDir
           .listSync()
           .whereType<File>()
-          .where((f) => f.path.endsWith('.db'))
+          .where((f) => f.path.endsWith('.db') && p.basename(f.path).startsWith(dbName))
           .toList()
         ..sort((a, b) => b.path.compareTo(a.path));
 
       if (files.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr("restore_failed") + ": Tidak ada file backup")),
+          SnackBar(content: Text("${tr("restore_failed")}: Tidak ada file backup")),
         );
         return;
       }
@@ -148,17 +201,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final fileToRestore =
           files.firstWhere((f) => p.basename(f.path) == selectedFile);
 
-      final success = await DatabaseHelper.instance.restoreDatabase(fileToRestore.path);
+      bool success = false;
+      if (dbName == 'famfinplan.db') {
+        success = await DatabaseHelper.instance.restoreDatabase(fileToRestore.path);
+      } else if (dbName == 'notes.db') {
+        final restorePath = await _getDatabasePath('notes.db');
+        final backupFile = File(fileToRestore.path);
+        if (await backupFile.exists()) {
+          await backupFile.copy(restorePath);
+          success = true;
+        }
+      }
 
       if (!mounted) return;
 
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("${tr("restore_success")}: ${p.basename(fileToRestore.path)}"),
-          ),
+          SnackBar(content: Text("${tr("restore_success")}: ${p.basename(fileToRestore.path)}")),
         );
-        FamFinPlan.restartApp(context);
+        if (dbName == 'famfinplan.db') FamFinPlan.restartApp(context);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(tr("restore_failed"))),
@@ -167,79 +228,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("restore_failed") + ": $e")),
+        SnackBar(content: Text("${tr("restore_failed")}: $e")),
       );
     }
   }
 
-  Future<void> _resetDatabase() async {
-    final controller = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr("type_reset_to_confirm")),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(hintText: tr("type_reset_here")),
+  Future<void> _restoreFromZip() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['zip'],
+      );
+
+      if (result == null) return;
+
+      final zipFile = File(result.files.single.path!);
+      final bytes = await zipFile.readAsBytes();
+      final archive = ZipDecoder().decodeBytes(bytes);
+
+      for (final file in archive) {
+        if (file.isFile) {
+          final data = file.content as List<int>;
+          final dbName = file.name;
+
+          String restorePath;
+          if (dbName == 'notes.db') {
+            final appDocDir = await getApplicationDocumentsDirectory();
+            restorePath = p.join(appDocDir.path, dbName);
+          } else {
+            final databasesPath = await getDatabasesPath();
+            restorePath = p.join(databasesPath, dbName);
+          }
+
+          final outFile = File(restorePath);
+          await outFile.writeAsBytes(Uint8List.fromList(data), flush: true);
+        }
+      }
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(tr("restore_success")),
+          content: Text(tr("please_restart_app")),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text("OK"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                SystemNavigator.pop();
+              },
+              child: Text(tr("restart_app")),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            child: Text(tr("cancel")),
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: Text(tr("confirm")),
-            onPressed: () {
-              if (controller.text.trim().toUpperCase() == "RESET") {
-                Navigator.pop(context, true);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(tr("reset_not_confirmed"))),
-                );
-              }
-            },
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    await _backupDatabase();
-    await DatabaseHelper.instance.resetDatabase();
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(tr("database_reset_success"))),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${tr("restore_failed")}: $e")),
+      );
+    }
   }
 
-  Future<void> _deleteSingleBackup() async {
+  Future<void> _deleteBackupFile(String dbName) async {
     try {
       final appDir = await getApplicationDocumentsDirectory();
       final backupDir = Directory(p.join(appDir.path, 'backups'));
-
-      if (!await backupDir.exists()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr("no_backups_found"))),
-        );
-        return;
-      }
+      if (!await backupDir.exists()) return;
 
       final files = backupDir
           .listSync()
           .whereType<File>()
-          .where((f) => f.path.endsWith('.db'))
+          .where((f) => f.path.endsWith('.db') && p.basename(f.path).startsWith(dbName))
           .toList()
         ..sort((a, b) => b.path.compareTo(a.path));
 
-      if (files.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr("no_backups_found"))),
-        );
-        return;
-      }
+      if (files.isEmpty) return;
 
       final fileNames = files.map((f) => p.basename(f.path)).toList();
       String? selectedFile = await showDialog<String>(
@@ -273,7 +341,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       final fileToDelete =
           files.firstWhere((f) => p.basename(f.path) == selectedFile);
-
       await fileToDelete.delete();
 
       if (!mounted) return;
@@ -283,43 +350,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr("delete_failed") + ": $e")),
+        SnackBar(content: Text("${tr("delete_failed")}: $e")),
       );
     }
   }
 
-  Future<void> _shareDatabase() async {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.share, color: Colors.blue),
-            title: Text(tr("share_database")),
-            onTap: () async {
-              Navigator.pop(context);
-              try {
-                final databasesPath = await getDatabasesPath();
-                final dbPath = p.join(databasesPath, 'famfinplan.db');
-                final dbFile = File(dbPath);
+  Future<void> _shareDatabase(String dbName) async {
+    try {
+      final dbPath = await _getDatabasePath(dbName);
+      final dbFile = File(dbPath);
+      if (!await dbFile.exists()) throw Exception("Database tidak ditemukan");
 
-                if (!await dbFile.exists()) throw Exception("Database tidak ditemukan");
-
-                await ExportService.shareFile(dbFile.path, text: tr("share_database"));
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("${tr("share_failed")}: $e")),
-                );
-              }
-            },
-          ),
-        ],
-      ),
-    );
+      await ExportService.shareFile(dbFile.path, text: "${tr("share_database")}: $dbName");
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${tr("share_failed")}: $e")),
+      );
+    }
   }
 
   Widget _buildCard(String title, IconData icon, Widget child) {
@@ -351,109 +399,126 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: Text(tr("settings")),
         centerTitle: true,
-        backgroundColor: Colors.green,
       ),
-      body: SingleChildScrollView(
+      body: ListView(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Currency Setting
-            _buildCard(
-              tr("currency"),
-              Icons.attach_money,
-              DropdownButtonFormField<String>(
-                value: selectedCurrency,
-                items: currencies
-                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                    .toList(),
-                onChanged: (value) => setState(() => selectedCurrency = value!),
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                ),
-              ),
+        children: [
+          // Currency
+          _buildCard(
+            tr("currency"),
+            Icons.attach_money,
+            DropdownButton<String>(
+              value: selectedCurrency,
+              isExpanded: true,
+              items: currencies.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (value) => setState(() => selectedCurrency = value!),
             ),
-
-            // Language Setting
-            _buildCard(
-              tr("language"),
-              Icons.language,
-              DropdownButtonFormField<String>(
-                value: selectedLanguage,
-                items: languagesMap.keys
-                    .map((lang) => DropdownMenuItem(value: lang, child: Text(lang)))
-                    .toList(),
-                onChanged: (value) => setState(() => selectedLanguage = value!),
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                ),
-              ),
+          ),
+          // Language
+          _buildCard(
+            tr("language"),
+            Icons.language,
+            DropdownButton<String>(
+              value: selectedLanguage,
+              isExpanded: true,
+              items: languagesMap.keys
+                  .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                  .toList(),
+              onChanged: (value) => setState(() => selectedLanguage = value!),
             ),
-
-            // Database Actions
-            _buildCard(
-              tr("database_actions"),
-              Icons.storage,
-              Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.save, color: Colors.blue),
-                    title: Text(tr("backup_database")),
-                    onTap: _backupDatabase,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    tileColor: Colors.blue[50],
-                  ),
-                  const SizedBox(height: 8),
-                  ListTile(
-                    leading: const Icon(Icons.restore, color: Colors.orange),
-                    title: Text(tr("restore_database")),
-                    onTap: _restoreDatabase,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    tileColor: Colors.orange[50],
-                  ),
-                  const SizedBox(height: 8),
-                  ListTile(
-                    leading: const Icon(Icons.share, color: Colors.blueAccent),
-                    title: Text(tr("share_database")),
-                    onTap: _shareDatabase,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    tileColor: Colors.blue[50],
-                  ),
-                  const SizedBox(height: 8),
-                  ListTile(
-                    leading: const Icon(Icons.delete_forever, color: Colors.red),
-                    title: Text(tr("reset_database")),
-                    onTap: _resetDatabase,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    tileColor: Colors.red[50],
-                  ),
-                  const SizedBox(height: 8),
-                  ListTile(
-                    leading: const Icon(Icons.delete_outline, color: Colors.purple),
-                    title: Text(tr("delete_backup_file")),
-                    onTap: _deleteSingleBackup,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    tileColor: Colors.purple[50],
-                  ),
-                  const SizedBox(height: 12),
-                  Center(
-                    child: ElevatedButton.icon(
-                      onPressed: _saveSettings,
-                      icon: const Icon(Icons.save),
-                      label: Text(tr("save")),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        backgroundColor: Colors.green,
+          ),
+          // Database Actions
+          _buildCard(
+            tr("database_actions"),
+            Icons.storage,
+            ExpansionTile(
+              title: Text(tr("database_actions"), style: const TextStyle(fontWeight: FontWeight.bold)),
+              leading: const Icon(Icons.storage, color: Colors.green),
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.save, color: Colors.blue),
+                  title: Text(tr("backup_famfinplan")),
+                  onTap: () => _backupDatabase('famfinplan.db'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.restore, color: Colors.orange),
+                  title: Text(tr("restore_famfinplan")),
+                  onTap: () => _restoreDatabase('famfinplan.db'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.share, color: Colors.blueAccent),
+                  title: Text(tr("share_famfinplan")),
+                  onTap: () => _shareDatabase('famfinplan.db'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_forever, color: Colors.red),
+                  title: Text(tr("reset_famfinplan")),
+                  onTap: () => _restoreDatabase('famfinplan.db'),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.save, color: Colors.blue),
+                  title: Text(tr("backup_notes")),
+                  onTap: () => _backupDatabase('notes.db'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.restore, color: Colors.orange),
+                  title: Text(tr("restore_notes")),
+                  onTap: () => _restoreDatabase('notes.db'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.share, color: Colors.blueAccent),
+                  title: Text(tr("share_notes")),
+                  onTap: () => _shareDatabase('notes.db'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_forever, color: Colors.red),
+                  title: Text(tr("reset_notes")),
+                  onTap: () => _restoreDatabase('notes.db'),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.save, color: Colors.green),
+                  title: Text(tr("backup_all_databases")),
+                  onTap: _backupAllDatabases,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.restore_page, color: Colors.teal),
+                  title: Text(tr("restore_from_zip")),
+                  onTap: _restoreFromZip,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.purple),
+                  title: Text(tr("delete_backup_file")),
+                  onTap: () async {
+                    final dbOption = await showDialog<String>(
+                      context: context,
+                      builder: (context) => SimpleDialog(
+                        title: Text(tr("select_database")),
+                        children: [
+                          SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, 'famfinplan.db'),
+                            child: Text(tr("famfinplan_db")),
+                          ),
+                          SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, 'notes.db'),
+                            child: Text(tr("notes_db")),
+                          ),
+                        ],
                       ),
-                    ),
-                  ),
-                ],
-              ),
+                    );
+                    if (dbOption != null) _deleteBackupFile(dbOption);
+                  },
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: _saveSettings,
+            child: Text(tr("save_settings")),
+          ),
+        ],
       ),
     );
   }
