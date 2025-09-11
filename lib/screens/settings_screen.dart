@@ -8,8 +8,8 @@ import 'package:archive/archive_io.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:share_plus/share_plus.dart';
 
-import '../services/export_service.dart';
 import '../db/database_helper.dart';
 import 'settings_notifier.dart';
 
@@ -75,7 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _backupAllDatabases() async {
+  Future<String?> _createBackupZip() async {
     try {
       final appDir = await getApplicationDocumentsDirectory();
       final backupDir = Directory(p.join(appDir.path, 'backups'));
@@ -99,15 +99,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
 
       encoder.close();
-
-      if (!mounted) return;
+      return zipFilePath;
+    } catch (e) {
+      if (!mounted) return null;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("${tr("backup_success")}: Semua database dibackup di $zipFilePath")),
+        SnackBar(content: Text("${tr("backup_failed")}: $e")),
       );
+      return null;
+    }
+  }
+
+  Future<void> _backupAllDatabases() async {
+    final zipPath = await _createBackupZip();
+    if (zipPath != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("${tr("backup_success")}: Semua database dibackup di $zipPath")),
+      );
+    }
+  }
+
+  Future<void> _shareDatabase() async {
+    final zipPath = await _createBackupZip();
+    if (zipPath == null) return;
+
+    try {
+      await Share.shareXFiles([XFile(zipPath)], text: tr("share_database_text"));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("${tr("backup_failed")}: $e")),
+        SnackBar(content: Text("${tr("share_failed")}: $e")),
       );
     }
   }
@@ -196,6 +216,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required String description,
+    required VoidCallback onPressed,
+    Color color = Colors.green,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ElevatedButton.icon(
+            icon: Icon(icon),
+            label: Text(label),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+              backgroundColor: color,
+            ),
+            onPressed: onPressed,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            description,
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -235,28 +286,95 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
           ),
-          // Database Actions (hapus menu delete)
-          _buildCard(
-            tr("database_actions"),
-            Icons.storage,
-            Column(
+          // Database Actions as ExpansionTile
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            child: ExpansionTile(
+              leading: const Icon(Icons.storage, color: Colors.green),
+              title: Text(tr("database_actions"), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               children: [
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.save),
-                  label: Text(tr("backup_all_databases")),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(50),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Column(
+                    children: [
+                      _buildActionButton(
+                        icon: Icons.save,
+                        label: tr("backup_all_databases"),
+                        description: tr("backup_all_databases_desc"),
+                        onPressed: _backupAllDatabases,
+                      ),
+                      _buildActionButton(
+                        icon: Icons.restore_page,
+                        label: tr("restore_from_zip"),
+                        description: tr("restore_from_zip_desc"),
+                        onPressed: _restoreFromZip,
+                      ),
+                      _buildActionButton(
+                        icon: Icons.share,
+                        label: tr("share_database"),
+                        description: tr("share_database_desc"),
+                        onPressed: _shareDatabase,
+                      ),
+                      _buildActionButton(
+                        icon: Icons.delete_forever,
+                        label: tr("reset_database"),
+                        description: tr("reset_database_desc"),
+                        color: Colors.red,
+                        onPressed: () async {
+                          final controller = TextEditingController();
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: Text(tr("confirm_reset_database")),
+                              content: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(tr("type_reset_to_confirm")),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: controller,
+                                    decoration: InputDecoration(
+                                      hintText: "RESET",
+                                      border: const OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(false),
+                                  child: Text(tr("cancel")),
+                                ),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                  onPressed: () {
+                                    if (controller.text.trim().toUpperCase() == "RESET") {
+                                      Navigator.of(ctx).pop(true);
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text(tr("wrong_confirmation_text"))),
+                                      );
+                                    }
+                                  },
+                                  child: Text(tr("confirm")),
+                                ),
+                              ],
+                            ),
+                          );
+
+                          if (confirm == true) {
+                            await DatabaseHelper.instance.resetDatabase();
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(tr("database_reset_success"))),
+                            );
+                          }
+                        },
+                      ),
+                    ],
                   ),
-                  onPressed: _backupAllDatabases,
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.restore_page),
-                  label: Text(tr("restore_from_zip")),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(50),
-                  ),
-                  onPressed: _restoreFromZip,
                 ),
               ],
             ),
