@@ -188,5 +188,16 @@
   "confirm_reset_database": "Confirm Reset Database",
   "type_reset_to_confirm": "Type 'RESET' to confirm",
   "wrong_confirmation_text": "Wrong confirmation text!",
-  "database_reset_success": "Database has been reset successfully"  
+  "database_reset_success": "Database has been reset successfully",
+  "vehicle_data": "Vehicle Data",  
+  "vehicle_type_motorcycle": "Motorcycle",
+  "vehicle_type_car": "Car", 
+  "last_oil_date": "Last Oil Date", 
+  "add_vehicle": "Add Vehicle",
+  "edit_vehicle": "Edit Vehicle",
+  "delete_confirm_title": "Delete Vehicle",
+  "delete_confirm_message": "Are you sure you want to delete this vehicle?",
+  "required": "This field is required",
+  "oil_reminder_title": "Oil Change Reminder",
+  "oil_reminder_body": "Your vehicle {{plate}} needs an oil change on {{date}}"  
 }

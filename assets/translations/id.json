@@ -190,5 +190,16 @@
   "wrong_confirmation_text": "Teks konfirmasi salah!",
   "database_reset_success": "Database berhasil direset",
   "reminder_set_for": "Reminder diset untuk {}",
-  "reminder_failed": "Gagal membuat reminder"
+  "reminder_failed": "Gagal membuat reminder",
+  "vehicle_data": "Data Kendaraan",  
+  "vehicle_type_motorcycle": "Motor",
+  "vehicle_type_car": "Mobil",  
+  "last_oil_date": "Tanggal Ganti Oli Terakhir", 
+  "add_vehicle": "Tambah Kendaraan",
+  "edit_vehicle": "Edit Kendaraan", 
+  "delete_confirm_title": "Hapus Kendaraan",
+  "delete_confirm_message": "Apakah kamu yakin ingin menghapus kendaraan ini?",
+  "required": "Kolom ini wajib diisi",
+  "oil_reminder_title": "Pengingat Ganti Oli",
+  "oil_reminder_body": "Kendaraan {{plate}} perlu ganti oli pada {{date}}"
 }

@@ -1,14 +1,16 @@
+// lib/screens/vehicle_screen.dart
+import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
-import '../db/database_helper.dart';
-import '../services/notification_service.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
-import 'dart:io';
-import 'package:excel/excel.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
+
+import '../db/kendaraan_db.dart';
+import '../services/notification_service.dart';
 
 class VehicleScreen extends StatefulWidget {
   const VehicleScreen({super.key});
@@ -18,563 +20,515 @@ class VehicleScreen extends StatefulWidget {
 }
 
 class _VehicleScreenState extends State<VehicleScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final TextEditingController _vehicleTypeController = TextEditingController();
-  final TextEditingController _plateNumberController = TextEditingController();
-  final TextEditingController _lastOilChangeKmController = TextEditingController();
-  final TextEditingController _oilUsageMonthsController = TextEditingController();
-
-  DateTime? _taxDate;
-  DateTime? _lastOilChangeDate;
-  DateTime? _nextOilDate;
-  DateTime? _reminderDateTime;
-  int? _editingVehicleId;
-
-  final List<String> _vehicleTypes = ['Sepeda Motor / Motorcycle', 'Mobil / Car'];
-  Future<List<Map<String, dynamic>>>? _vehiclesFuture;
+  List<Map<String, dynamic>> _vehicles = [];
+  final List<String> _vehicleTypes = [
+    'vehicle_type_motorcycle',
+    'vehicle_type_car',
+  ];
 
   @override
   void initState() {
     super.initState();
-    _vehiclesFuture = DatabaseHelper.instance.getVehicles();
+    _loadVehicles();
+    NotificationService.instance.init();
   }
 
-  String _formatDate(String? isoDate, {bool includeTime = false}) {
-    if (isoDate == null) return '-';
-    final date = DateTime.tryParse(isoDate);
-    if (date == null) return '-';
-    return includeTime
-        ? DateFormat('dd/MM/yyyy HH:mm').format(date)
-        : DateFormat('dd/MM/yyyy').format(date);
+  Future<void> _loadVehicles() async {
+    final data = await KendaraanDB.instance.getVehicles();
+    setState(() => _vehicles = data);
   }
 
-  void _refreshVehicles() {
-    setState(() {
-      _vehiclesFuture = DatabaseHelper.instance.getVehicles();
-    });
-  }
-
-  void _clearForm() {
-    _formKey.currentState?.reset();
-    _vehicleTypeController.clear();
-    _plateNumberController.clear();
-    _lastOilChangeKmController.clear();
-    _oilUsageMonthsController.clear();
-    _taxDate = null;
-    _lastOilChangeDate = null;
-    _nextOilDate = null;
-    _reminderDateTime = null;
-    _editingVehicleId = null;
-  }
-
-  void _calculateNextOilDate() {
-    if (_lastOilChangeDate != null && _oilUsageMonthsController.text.isNotEmpty) {
-      final months = int.tryParse(_oilUsageMonthsController.text) ?? 0;
-      _nextOilDate = DateTime(
-        _lastOilChangeDate!.year,
-        _lastOilChangeDate!.month + months,
-        _lastOilChangeDate!.day,
-      );
-    }
-  }
-
-  Future<void> _saveVehicle() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_taxDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('select_tax_date'.tr())),
-      );
-      return;
-    }
-
-    _calculateNextOilDate();
-
-    final vehicleData = {
-      'vehicleType': _vehicleTypeController.text,
-      'plateNumber': _plateNumberController.text,
-      'taxDate': _taxDate!.toIso8601String(),
-      'lastOilKm': int.parse(_lastOilChangeKmController.text),
-      'oilUsageMonths': int.parse(_oilUsageMonthsController.text),
-      'lastOilChangeDate': _lastOilChangeDate?.toIso8601String(),
-      'nextOilDate': _nextOilDate?.toIso8601String(),
-      'reminderDateTime': _reminderDateTime?.toIso8601String(),
-    };
-
-    if (_editingVehicleId == null) {
-      await DatabaseHelper.instance.insertVehicle(vehicleData);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('vehicle_saved'.tr())),
-      );
-    } else {
-      await DatabaseHelper.instance.updateVehicle(_editingVehicleId!, vehicleData);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('vehicle_updated'.tr())),
-      );
-    }
-
-    if (_reminderDateTime != null) {
+  // schedule reminder using NotificationService API: scheduleNotification(id, title, body, scheduledDate)
+  Future<void> _scheduleOilReminder(DateTime oilDate, String plate) async {
+    if (oilDate.isBefore(DateTime.now())) return;
+    try {
       await NotificationService.instance.scheduleNotification(
-        _editingVehicleId ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        'Pengingat Kendaraan',
-        'Waktunya periksa/mengganti oli: ${_vehicleTypeController.text} - ${_plateNumberController.text}',
-        _reminderDateTime!,
+        oilDate.millisecondsSinceEpoch % 100000,
+        "oil_reminder_title".tr(),
+        "oil_reminder_body".tr(namedArgs: {
+          "plate": plate,
+          "date": DateFormat('dd/MM/yyyy').format(oilDate),
+        }),
+        oilDate,
       );
+    } catch (e) {
+      // ignore scheduling errors but inform user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('notification_error'.tr() + ': $e')),
+        );
+      }
     }
-
-    _clearForm();
-    _refreshVehicles();
   }
 
-  void _editVehicle(Map<String, dynamic> vehicle) {
-    _editingVehicleId = vehicle['id'] as int?;
-
-    _vehicleTypeController.text = vehicle['vehicleType'] ?? '';
-    _plateNumberController.text = vehicle['plateNumber'] ?? '';
-    _lastOilChangeKmController.text = vehicle['lastOilKm']?.toString() ?? '';
-    _oilUsageMonthsController.text = vehicle['oilUsageMonths']?.toString() ?? '';
-
-    _taxDate = vehicle['taxDate'] != null ? DateTime.tryParse(vehicle['taxDate']) : null;
-    _lastOilChangeDate = vehicle['lastOilChangeDate'] != null ? DateTime.tryParse(vehicle['lastOilChangeDate']) : null;
-    _nextOilDate = vehicle['nextOilDate'] != null ? DateTime.tryParse(vehicle['nextOilDate']) : null;
-    _reminderDateTime = vehicle['reminderDateTime'] != null ? DateTime.tryParse(vehicle['reminderDateTime']) : null;
-  }
-
-  Future<void> _confirmDelete(int vehicleId) async {
-    final confirm = await showDialog<bool>(
+  // delete confirm dialog
+  void _showDeleteDialog(int id) {
+    showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('confirm_delete'.tr()),
-        content: Text('delete_vehicle_confirm'.tr()),
+      builder: (_) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text("delete_confirm_title".tr(),
+            style: const TextStyle(color: Colors.white)),
+        content: Text("delete_confirm_message".tr(),
+            style: const TextStyle(color: Colors.white70)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         actions: [
           TextButton(
-            child: Text('cancel'.tr()),
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(context),
+            child: Text("cancel".tr(),
+                style: const TextStyle(color: Colors.blueAccent)),
           ),
-          TextButton(
-            child: Text('delete'.tr(), style: const TextStyle(color: Colors.red)),
-            onPressed: () => Navigator.pop(context, true),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              await KendaraanDB.instance.deleteVehicle(id);
+              Navigator.pop(context);
+              await _loadVehicles();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('vehicle_deleted'.tr())),
+                );
+              }
+            },
+            child: Text("delete".tr()),
           ),
         ],
       ),
     );
-    if (confirm == true) {
-      await DatabaseHelper.instance.deleteVehicle(vehicleId);
-      _refreshVehicles();
-    }
   }
 
-  Future<void> _shareVehicleText(Map<String, dynamic> v) async {
-    final vehicleInfo = '''
-${v['vehicleType']} - ${v['plateNumber']}
-${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}
-${'last_oil_km'.tr()}: ${v['lastOilKm']}
-${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}
-${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}
-${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}
-${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}
-''';
-    await Share.share(vehicleInfo);
-  }
-
-  Future<void> _shareVehiclePDF(Map<String, dynamic> v) async {
-    final pdf = pw.Document();
-    pdf.addPage(
-      pw.Page(
-        build: (context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text('${v['vehicleType']} - ${v['plateNumber']}', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 8),
-            pw.Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}'),
-            pw.Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}'),
-            pw.Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}'),
-            pw.Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}'),
-            pw.Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}'),
-            pw.Text('${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}'),
-          ],
-        ),
-      ),
+  // ------------------ FORM (Bottom Sheet) ------------------
+  void _showVehicleForm({Map<String, dynamic>? vehicle}) {
+    final _formKey = GlobalKey<FormState>();
+    final typeCtrl = TextEditingController(text: vehicle?['vehicleType'] ?? '');
+    final plateCtrl = TextEditingController(text: vehicle?['plateNumber'] ?? '');
+    final taxCtrl = TextEditingController(
+      text: vehicle?['taxDate'] != null
+          ? DateFormat('dd/MM/yyyy').format(DateTime.parse(vehicle!['taxDate']))
+          : '',
+    );
+    final oilKmCtrl = TextEditingController(text: vehicle?['lastOilKm']?.toString() ?? '');
+    final monthsCtrl =
+        TextEditingController(text: vehicle?['oilUsageMonths']?.toString() ?? '');
+    final oilDateCtrl = TextEditingController(
+      text: vehicle?['lastOilDate'] != null
+          ? DateFormat('dd/MM/yyyy').format(DateTime.parse(vehicle!['lastOilDate']))
+          : '',
     );
 
-    final tempDir = await getTemporaryDirectory();
-    final file = File('${tempDir.path}/vehicle_${v['id']}.pdf');
-    await file.writeAsBytes(await pdf.save());
-    await Share.shareXFiles([XFile(file.path)], text: 'Vehicle Info PDF');
-  }
+    Future<void> saveData() async {
+      if (!_formKey.currentState!.validate()) return;
 
-  Future<void> _shareAllVehiclesPDF(List<Map<String, dynamic>> vehicles) async {
-    final pdf = pw.Document();
-    for (var v in vehicles) {
-      pdf.addPage(
-        pw.Page(
-          build: (context) => pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text('${v['vehicleType']} - ${v['plateNumber']}', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}'),
-              pw.Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}'),
-              pw.Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}'),
-              pw.Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}'),
-              pw.Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}'),
-              pw.Text('${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}'),
-            ],
-          ),
-        ),
-      );
-    }
-    final tempDir = await getTemporaryDirectory();
-    final file = File('${tempDir.path}/all_vehicles.pdf');
-    await file.writeAsBytes(await pdf.save());
-    await Share.shareXFiles([XFile(file.path)], text: 'All Vehicles PDF');
-  }
+      DateTime? taxDate = taxCtrl.text.isNotEmpty
+          ? DateFormat('dd/MM/yyyy').parse(taxCtrl.text)
+          : null;
+      DateTime? lastOilDate = oilDateCtrl.text.isNotEmpty
+          ? DateFormat('dd/MM/yyyy').parse(oilDateCtrl.text)
+          : null;
 
-  Future<void> _shareAllVehiclesExcel(List<Map<String, dynamic>> vehicles) async {
-    final excel = Excel.createExcel();
-    final sheet = excel['Vehicles'];
+      int? oilUsageMonths = int.tryParse(monthsCtrl.text);
+      DateTime? nextOilDate;
+      if (lastOilDate != null && oilUsageMonths != null) {
+        nextOilDate = DateTime(lastOilDate.year,
+            lastOilDate.month + oilUsageMonths, lastOilDate.day);
+      }
 
-    sheet.appendRow([
-      'Vehicle Type',
-      'Plate Number',
-      'Tax Date',
-      'Last Oil KM',
-      'Oil Usage Months',
-      'Last Oil Change Date',
-      'Next Oil Date',
-      'Reminder'
-    ]);
+      final newVehicle = {
+        "vehicleType": typeCtrl.text,
+        "plateNumber": plateCtrl.text,
+        "taxDate": taxDate?.toIso8601String(),
+        "lastOilKm": int.tryParse(oilKmCtrl.text),
+        "oilUsageMonths": oilUsageMonths,
+        "lastOilDate": lastOilDate?.toIso8601String(),
+        "nextOilDate": nextOilDate?.toIso8601String(),
+      };
 
-    for (var v in vehicles) {
-      sheet.appendRow([
-        v['vehicleType'],
-        v['plateNumber'],
-        _formatDate(v['taxDate']),
-        v['lastOilKm'],
-        v['oilUsageMonths'],
-        _formatDate(v['lastOilChangeDate']),
-        _formatDate(v['nextOilDate']),
-        _formatDate(v['reminderDateTime'], includeTime: true),
-      ]);
+      if (vehicle == null) {
+        await KendaraanDB.instance.insertVehicle(newVehicle);
+      } else {
+        await KendaraanDB.instance.updateVehicle(vehicle['id'], newVehicle);
+      }
+
+      if (nextOilDate != null) {
+        await _scheduleOilReminder(nextOilDate, plateCtrl.text);
+      }
+
+      Navigator.pop(context);
+      await _loadVehicles();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(vehicle == null ? 'vehicle_saved'.tr() : 'vehicle_updated'.tr())),
+        );
+      }
     }
 
-    final tempDir = await getTemporaryDirectory();
-    final file = File('${tempDir.path}/all_vehicles.xlsx');
-    await file.writeAsBytes(excel.encode()!);
-    await Share.shareXFiles([XFile(file.path)], text: 'All Vehicles Excel');
-  }
-
-  InputDecoration _inputDecoration(String label) {
-    return InputDecoration(
-      labelText: label,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-      filled: true,
-      fillColor: Colors.grey[100],
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-    );
-  }
-
-  Widget _buildDatePickerField(String label, DateTime? selectedDate, Function(DateTime) onDateSelected) {
-    return InkWell(
-      onTap: () async {
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: selectedDate ?? DateTime.now(),
-          firstDate: DateTime(2000),
-          lastDate: DateTime(2100),
-        );
-        if (picked != null) onDateSelected(picked);
-      },
-      child: InputDecorator(
-        decoration: _inputDecoration(label),
-        child: Text(
-          selectedDate == null ? 'select_date'.tr() : DateFormat('dd/MM/yyyy').format(selectedDate),
-          style: const TextStyle(fontSize: 13),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDateTimePickerField(String label, DateTime? selectedDateTime, Function(DateTime) onDateTimeSelected) {
-    return InkWell(
-      onTap: () async {
-        final pickedDate = await showDatePicker(
-          context: context,
-          initialDate: selectedDateTime ?? DateTime.now(),
-          firstDate: DateTime(2000),
-          lastDate: DateTime(2100),
-        );
-        if (pickedDate != null) {
-          final pickedTime = await showTimePicker(
-            context: context,
-            initialTime: selectedDateTime != null
-                ? TimeOfDay(hour: selectedDateTime.hour, minute: selectedDateTime.minute)
-                : TimeOfDay.now(),
-          );
-          if (pickedTime != null) {
-            final dateTime = DateTime(
-              pickedDate.year,
-              pickedDate.month,
-              pickedDate.day,
-              pickedTime.hour,
-              pickedTime.minute,
-            );
-            onDateTimeSelected(dateTime);
-          }
-        }
-      },
-      child: InputDecorator(
-        decoration: _inputDecoration(label),
-        child: Text(
-          selectedDateTime == null
-              ? 'select_date_time'.tr()
-              : DateFormat('dd/MM/yyyy HH:mm').format(selectedDateTime),
-          style: const TextStyle(fontSize: 13),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFormCard() {
-    return Form(
-      key: _formKey,
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('vehicle_info'.tr(),
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            DropdownButtonFormField<String>(
-              initialValue: _vehicleTypes.contains(_vehicleTypeController.text)
-                  ? _vehicleTypeController.text
-                  : null,
-              items: _vehicleTypes
-                  .map((type) => DropdownMenuItem(
-                        value: type,
-                        child: Text(type, style: const TextStyle(fontSize: 13)),
-                      ))
-                  .toList(),
-              onChanged: (val) => setState(() => _vehicleTypeController.text = val ?? ''),
-              validator: (val) =>
-                  val == null || val.isEmpty ? 'select_vehicle_type'.tr() : null,
-              decoration: _inputDecoration('vehicle_type'.tr()),
-            ),
-            const SizedBox(height: 6),
-            TextFormField(
-              controller: _plateNumberController,
-              decoration: _inputDecoration('plate_number'.tr()),
-              style: const TextStyle(fontSize: 13),
-              validator: (val) =>
-                  val == null || val.isEmpty ? 'enter_plate_number'.tr() : null,
-            ),
-            const SizedBox(height: 10),
-            _buildDatePickerField('tax_date'.tr(), _taxDate, (date) => setState(() => _taxDate = date)),
-            const SizedBox(height: 6),
-            TextFormField(
-              controller: _lastOilChangeKmController,
-              decoration: _inputDecoration('last_oil_km'.tr()),
-              keyboardType: TextInputType.number,
-              validator: (val) =>
-                  val == null || val.isEmpty ? 'enter_last_oil_km'.tr() : null,
-            ),
-            const SizedBox(height: 6),
-            TextFormField(
-              controller: _oilUsageMonthsController,
-              decoration: _inputDecoration('oil_usage_months'.tr()),
-              keyboardType: TextInputType.number,
-              validator: (val) =>
-                  val == null || val.isEmpty ? 'enter_oil_usage_months'.tr() : null,
-              onChanged: (_) => setState(() => _calculateNextOilDate()),
-            ),
-            const SizedBox(height: 6),
-            _buildDatePickerField('last_oil_change_date'.tr(), _lastOilChangeDate, (date) {
-              setState(() {
-                _lastOilChangeDate = date;
-                _calculateNextOilDate();
-              });
-            }),
-            const SizedBox(height: 6),
-            _buildDatePickerField('next_oil_date'.tr(), _nextOilDate, (_) {}),
-            const SizedBox(height: 6),
-            _buildDateTimePickerField('reminder'.tr(), _reminderDateTime, (dateTime) {
-              setState(() => _reminderDateTime = dateTime);
-            }),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0066FF),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                onPressed: () {
-                  _saveVehicle();
-                  Navigator.pop(context);
-                },
-                child: Text(
-                  _editingVehicleId == null ? 'add'.tr() : 'update'.tr(),
-                  style: const TextStyle(fontSize: 13),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVehicleCards() {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _vehiclesFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        } else if (snapshot.hasError) {
-          return Text('Error: ${snapshot.error}');
-        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return Center(child: Text('no_vehicles'.tr()));
-        }
-
-        final vehicles = snapshot.data!;
-        return Column(
-          children: vehicles.map((v) {
-            return Card(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              child: Padding(
-                padding: const EdgeInsets.all(10.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('${v['vehicleType']} - ${v['plateNumber']}',
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}', style: const TextStyle(fontSize: 12)),
-                    Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}', style: const TextStyle(fontSize: 12)),
-                    Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}', style: const TextStyle(fontSize: 12)),
-                    Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}', style: const TextStyle(fontSize: 12)),
-                    Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}', style: const TextStyle(fontSize: 12)),
-                    Text('${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}', style: const TextStyle(fontSize: 12)),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit, color: Colors.blue),
-                          onPressed: () {
-                            _editVehicle(v);
-                            _showVehicleFormSheet();
-                          },
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => _confirmDelete(v['id']),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.picture_as_pdf, color: Colors.green),
-                          onPressed: () => _shareVehiclePDF(v),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.share, color: Colors.orange),
-                          onPressed: () => _shareVehicleText(v),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  void _showVehicleFormSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-          left: 16,
-          right: 16,
-          top: 16,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            color: Colors.black.withOpacity(0.75),
+            padding: EdgeInsets.only(
+              left: 18,
+              right: 18,
+              top: 20,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+            ),
+            child: Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // header
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          vehicle == null ? "add_vehicle".tr() : "edit_vehicle".tr(),
+                          style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white70),
+                          onPressed: () => Navigator.pop(context),
+                        )
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // vehicle type
+                    DropdownButtonFormField<String>(
+                      value: _vehicleTypes.contains(typeCtrl.text) ? typeCtrl.text : null,
+                      items: _vehicleTypes
+                          .map(
+                            (k) => DropdownMenuItem(
+                              value: k,
+                              child: Text(k.tr(), style: const TextStyle(color: Colors.white)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (val) => typeCtrl.text = val ?? '',
+                      dropdownColor: Colors.black87,
+                      validator: (v) => v == null || v.isEmpty ? "select_vehicle_type".tr() : null,
+                      decoration: _fieldDeco("vehicle_type".tr(), Icons.directions_car),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // plate
+                    _buildTextField(plateCtrl, "plate_number".tr(), Icons.confirmation_number,
+                        validator: (v) => v == null || v.isEmpty ? "required".tr() : null),
+                    const SizedBox(height: 10),
+
+                    // tax date
+                    _buildDateField(taxCtrl, "tax_date".tr(), Icons.event),
+                    const SizedBox(height: 10),
+
+                    // last oil km
+                    _buildTextField(oilKmCtrl, "last_oil_km".tr(), Icons.speed,
+                        keyboard: TextInputType.number),
+                    const SizedBox(height: 10),
+
+                    // oil usage months
+                    _buildTextField(monthsCtrl, "oil_usage_months".tr(), Icons.calendar_month,
+                        keyboard: TextInputType.number),
+                    const SizedBox(height: 10),
+
+                    // last oil date
+                    _buildDateField(oilDateCtrl, "last_oil_date".tr(), Icons.build),
+                    const SizedBox(height: 18),
+
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.save, color: Colors.white),
+                      label: Text("save".tr(), style: const TextStyle(color: Colors.white)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF6A5AE0),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        minimumSize: const Size(double.infinity, 48),
+                      ),
+                      onPressed: saveData,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
-        child: _buildFormCard(),
       ),
     );
   }
 
+  // ------------------ SHARE & PDF ------------------
+
+  // share text (quick)
+  void _shareText(Map<String, dynamic> v) {
+    final lines = <String>[];
+    lines.add('${(v['vehicleType'] as String).tr()} - ${v['plateNumber']}');
+    lines.add('${"tax_date".tr()}: ${v['taxDate'] != null ? DateFormat('dd/MM/yyyy').format(DateTime.parse(v['taxDate'])) : '-'}');
+    lines.add('${"last_oil_km".tr()}: ${v['lastOilKm'] ?? '-'}');
+    lines.add('${"oil_usage_months".tr()}: ${v['oilUsageMonths'] ?? '-'}');
+    lines.add('${"last_oil_date".tr()}: ${v['lastOilDate'] != null ? DateFormat('dd/MM/yyyy').format(DateTime.parse(v['lastOilDate'])) : '-'}');
+    lines.add('${"next_oil_date".tr()}: ${v['nextOilDate'] != null ? DateFormat('dd/MM/yyyy').format(DateTime.parse(v['nextOilDate'])) : '-'}');
+
+    final shareText = lines.join('\n');
+    Share.share(shareText, subject: 'vehicle_data'.tr());
+  }
+
+  // export single vehicle to PDF and share
+  Future<void> _exportVehicleToPdf(Map<String, dynamic> v) async {
+    try {
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (ctx) {
+            return pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Header(level: 0, child: pw.Text('vehicle_data'.tr(), style: pw.TextStyle(fontSize: 22))),
+                  pw.SizedBox(height: 6),
+                  pw.Text('${"vehicle_type".tr()}: ${(v['vehicleType'] as String).tr()}'),
+                  pw.Text('${"plate_number".tr()}: ${v['plateNumber']}'),
+                  pw.Text('${"tax_date".tr()}: ${v['taxDate'] != null ? DateFormat('dd/MM/yyyy').format(DateTime.parse(v['taxDate'])) : '-'}'),
+                  pw.Text('${"last_oil_km".tr()}: ${v['lastOilKm'] ?? '-'}'),
+                  pw.Text('${"oil_usage_months".tr()}: ${v['oilUsageMonths'] ?? '-'}'),
+                  pw.Text('${"last_oil_date".tr()}: ${v['lastOilDate'] != null ? DateFormat('dd/MM/yyyy').format(DateTime.parse(v['lastOilDate'])) : '-'}'),
+                  pw.Text('${"next_oil_date".tr()}: ${v['nextOilDate'] != null ? DateFormat('dd/MM/yyyy').format(DateTime.parse(v['nextOilDate'])) : '-'}'),
+                ]);
+          },
+        ),
+      );
+
+      final tmp = await getTemporaryDirectory();
+      final file = File('${tmp.path}/vehicle_${v['plateNumber']}.pdf');
+      await file.writeAsBytes(await pdf.save());
+      await Share.shareXFiles([XFile(file.path)], subject: 'vehicle_data'.tr());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('pdf_error'.tr() + ': $e')));
+      }
+    }
+  }
+
+  // export ALL vehicles to single PDF
+  Future<void> _exportAllToPdf() async {
+    if (_vehicles.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('no_data'.tr())));
+      }
+      return;
+    }
+
+    try {
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(18),
+          build: (ctx) {
+            return [
+              pw.Header(level: 0, child: pw.Text('vehicle_data'.tr(), style: pw.TextStyle(fontSize: 22))),
+              pw.SizedBox(height: 8),
+              ..._vehicles.map((v) {
+                return pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 6),
+                  child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                    pw.Text('${(v['vehicleType'] as String).tr()} - ${v['plateNumber']}', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('${"tax_date".tr()}: ${v['taxDate'] != null ? DateFormat('dd/MM/yyyy').format(DateTime.parse(v['taxDate'])) : '-'}'),
+                    pw.Text('${"last_oil_km".tr()}: ${v['lastOilKm'] ?? '-'}'),
+                    pw.Text('${"oil_usage_months".tr()}: ${v['oilUsageMonths'] ?? '-'}'),
+                    pw.Text('${"last_oil_date".tr()}: ${v['lastOilDate'] != null ? DateFormat('dd/MM/yyyy').format(DateTime.parse(v['lastOilDate'])) : '-'}'),
+                    pw.Text('${"next_oil_date".tr()}: ${v['nextOilDate'] != null ? DateFormat('dd/MM/yyyy').format(DateTime.parse(v['nextOilDate'])) : '-'}'),
+                    pw.Divider(),
+                  ]),
+                );
+              })
+            ];
+          },
+        ),
+      );
+
+      final tmp = await getTemporaryDirectory();
+      final file = File('${tmp.path}/vehicles_all.pdf');
+      await file.writeAsBytes(await pdf.save());
+      await Share.shareXFiles([XFile(file.path)], subject: 'vehicle_data'.tr());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('pdf_error'.tr() + ': $e')));
+      }
+    }
+  }
+
+  // ------------------ UI helpers ------------------
+
+  InputDecoration _fieldDeco(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: Colors.white70),
+      labelStyle: const TextStyle(color: Colors.white70),
+      filled: true,
+      fillColor: Colors.white.withOpacity(0.06),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+    );
+  }
+
+  Widget _buildTextField(TextEditingController ctrl, String label, IconData icon,
+      {TextInputType keyboard = TextInputType.text, String? Function(String?)? validator}) {
+    return TextFormField(
+      controller: ctrl,
+      keyboardType: keyboard,
+      validator: validator,
+      style: const TextStyle(color: Colors.white),
+      decoration: _fieldDeco(label, icon),
+    );
+  }
+
+  Widget _buildDateField(TextEditingController controller, String label, IconData icon) {
+    return TextFormField(
+      controller: controller,
+      readOnly: true,
+      style: const TextStyle(color: Colors.white),
+      decoration: _fieldDeco(label, icon).copyWith(suffixIcon: const Icon(Icons.calendar_today, color: Colors.white70)),
+      onTap: () async {
+        DateTime? picked = await showDatePicker(
+          context: context,
+          firstDate: DateTime(2000),
+          lastDate: DateTime(2100),
+          initialDate: DateTime.now(),
+        );
+        if (picked != null) controller.text = DateFormat('dd/MM/yyyy').format(picked);
+      },
+    );
+  }
+
+  Widget _infoChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+      ),
+      child: Text("$label: $value", style: const TextStyle(color: Colors.white70, fontSize: 13)),
+    );
+  }
+
+  Widget _buildVehicleCard(Map<String, dynamic> v) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [Colors.white.withOpacity(0.06), Colors.white.withOpacity(0.02)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withOpacity(0.12)),
+            boxShadow: [BoxShadow(color: Colors.blueAccent.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, 6))],
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(
+                child: Text(
+                  '${(v['vehicleType'] as String).tr()} - ${v['plateNumber']}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(
+                  tooltip: 'share'.tr(),
+                  icon: const Icon(Icons.share, color: Colors.white),
+                  onPressed: () => _shareText(v),
+                ),
+                IconButton(
+                  tooltip: 'pdf'.tr(),
+                  icon: const Icon(Icons.picture_as_pdf, color: Colors.redAccent),
+                  onPressed: () => _exportVehicleToPdf(v),
+                ),
+                IconButton(
+                  tooltip: 'edit'.tr(),
+                  icon: const Icon(Icons.edit, color: Colors.white),
+                  onPressed: () => _showVehicleForm(vehicle: v),
+                ),
+                IconButton(
+                  tooltip: 'delete'.tr(),
+                  icon: const Icon(Icons.delete, color: Colors.redAccent),
+                  onPressed: () => _showDeleteDialog(v['id']),
+                ),
+              ])
+            ]),
+            const SizedBox(height: 10),
+            Wrap(spacing: 10, runSpacing: 8, children: [
+              if (v['taxDate'] != null) _infoChip('tax_date'.tr(), DateFormat('dd/MM/yyyy').format(DateTime.parse(v['taxDate']))),
+              if (v['lastOilKm'] != null) _infoChip('last_oil_km'.tr(), '${v['lastOilKm']} km'),
+              if (v['oilUsageMonths'] != null) _infoChip('oil_usage_months'.tr(), '${v['oilUsageMonths']} bln'),
+              if (v['lastOilDate'] != null) _infoChip('last_oil_date'.tr(), DateFormat('dd/MM/yyyy').format(DateTime.parse(v['lastOilDate']))),
+              if (v['nextOilDate'] != null) _infoChip('next_oil_date'.tr(), DateFormat('dd/MM/yyyy').format(DateTime.parse(v['nextOilDate']))),
+            ])
+          ]),
+        ),
+      ),
+    );
+  }
+
+  // ------------------ BUILD ------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text('vehicle'.tr(), style: const TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF0066FF),
-        centerTitle: true,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildVehicleCards(),
-          ],
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(colors: [Color(0xFF0066FF), Color(0xFF6A5AE0)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+          ),
         ),
-      ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            heroTag: 'addVehicle',
-            onPressed: () {
-              _clearForm();
-              _showVehicleFormSheet();
-            },
-            backgroundColor: const Color(0xFF0066FF),
-            child: const Icon(Icons.add, color: Colors.white),
-          ),
-          const SizedBox(height: 10),
-          FloatingActionButton(
-            heroTag: 'shareAll',
-            onPressed: () async {
-              final vehicles = await DatabaseHelper.instance.getVehicles();
-              showModalBottomSheet(
-                context: context,
-                builder: (context) => Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.picture_as_pdf),
-                      title: Text('Share All as PDF'),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _shareAllVehiclesPDF(vehicles);
-                      },
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.grid_on),
-                      title: Text('Share All as Excel'),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _shareAllVehiclesExcel(vehicles);
-                      },
-                    ),
-                  ],
-                ),
-              );
-            },
-            backgroundColor: Colors.green,
-            child: const Icon(Icons.share, color: Colors.white),
-          ),
+        title: Text("vehicle_data".tr(), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'export_all'.tr(),
+            onPressed: _exportAllToPdf,
+            icon: const Icon(Icons.file_download, color: Colors.white),
+          )
         ],
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: _vehicles.isEmpty
+            ? Center(child: Text("no_data".tr(), style: const TextStyle(color: Colors.white70)))
+            : RefreshIndicator(
+                onRefresh: _loadVehicles,
+                color: const Color(0xFF6A5AE0),
+                child: ListView.builder(
+                  itemCount: _vehicles.length,
+                  itemBuilder: (_, i) => _buildVehicleCard(_vehicles[i]),
+                ),
+              ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: const Color(0xFF6A5AE0),
+        elevation: 6,
+        child: const Icon(Icons.add, color: Colors.white),
+        onPressed: () => _showVehicleForm(),
       ),
     );
   }
