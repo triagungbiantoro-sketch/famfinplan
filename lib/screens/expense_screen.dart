@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:image_picker/image_picker.dart';
 import '../db/database_helper.dart';
 import 'settings_notifier.dart';
 import '../services/export_service.dart';
@@ -21,6 +22,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
 
   String? _selectedCategory;
   DateTime? _selectedDate;
+  File? _selectedImage;
+  int? _editingId; // <-- untuk edit
 
   List<Map<String, dynamic>> _expenseList = [];
   final List<String> _categories = ["food", "transport", "shopping", "bills", "other"];
@@ -38,6 +41,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
 
   String _currencySymbol = "Rp";
   String _currencyCode = "IDR";
+
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -104,23 +109,60 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       final amount = _parseCurrency(_amountController.text);
       final note = _noteController.text;
 
-      await DatabaseHelper.instance.insertExpense({
+      final expenseData = {
         "amount": amount,
         "category": _selectedCategory!,
         "note": note,
         "date": _selectedDate!.toIso8601String(),
-      });
+        "imagePath": _selectedImage?.path,
+      };
 
-      _amountController.clear();
-      _noteController.clear();
-      _selectedCategory = null;
-      _selectedDate = DateTime.now();
+      if (_editingId != null) {
+        await DatabaseHelper.instance.updateExpense(_editingId!, expenseData);
+      } else {
+        await DatabaseHelper.instance.insertExpense(expenseData);
+      }
 
+      _clearForm();
       _loadExpenses();
 
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
               tr("expense_saved", args: [_formatCurrency(amount), tr(_selectedCategory ?? "other")]))));
+    }
+  }
+
+  void _clearForm() {
+    _amountController.clear();
+    _noteController.clear();
+    _selectedCategory = null;
+    _selectedDate = DateTime.now();
+    _selectedImage = null;
+    _editingId = null;
+  }
+
+  Future<void> _confirmDeleteExpense(int id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr("confirm_delete")),
+        content: Text(tr("delete_expense_confirm")),
+        actions: [
+          TextButton(
+            child: Text(tr("cancel")),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: Text(tr("delete"), style: const TextStyle(color: Colors.white)),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await _deleteExpense(id);
     }
   }
 
@@ -130,126 +172,24 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr("data_deleted"))));
   }
 
-  Future<void> _editExpense(Map<String, dynamic> expense) async {
-    final editAmountController =
-        TextEditingController(text: _formatCurrency((expense["amount"] as num).toDouble()));
-    final editNoteController = TextEditingController(text: expense["note"] ?? "");
-    String? editCategory = expense["category"];
-    DateTime editDate = DateTime.parse(expense["date"]);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr("edit_expense")),
-        content: SingleChildScrollView(
-          child: Column(
-            children: [
-              _buildFancyTextField(
-                controller: editAmountController,
-                label: tr("amount"),
-                icon: Icons.money_off,
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              _buildFancyDropdown(
-                label: tr("category"),
-                value: editCategory,
-                items: _categories,
-                onChanged: (val) => editCategory = val,
-                icon: Icons.category,
-              ),
-              const SizedBox(height: 12),
-              InkWell(
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: editDate,
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime(2100),
-                  );
-                  if (picked != null) setState(() => editDate = picked);
-                },
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: tr("date"),
-                    prefixIcon: const Icon(Icons.calendar_today),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                  child: Text(DateFormat("dd/MM/yyyy", context.locale.toString()).format(editDate)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _buildFancyTextField(
-                controller: editNoteController,
-                label: tr("note"),
-                icon: Icons.note_alt,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(child: Text(tr("cancel")), onPressed: () => Navigator.pop(context)),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            child: Text(tr("save"), style: const TextStyle(color: Colors.white)),
-            onPressed: () async {
-              final updatedAmount = _parseCurrency(editAmountController.text);
-              await DatabaseHelper.instance.updateExpense(expense["id"], {
-                "amount": updatedAmount,
-                "category": editCategory ?? "other",
-                "note": editNoteController.text,
-                "date": editDate.toIso8601String(),
-              });
-              Navigator.pop(context);
-              _loadExpenses();
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(SnackBar(content: Text(tr("data_updated"))));
-            },
-          ),
-        ],
-      ),
-    );
+  Future<void> _pickImage(ImageSource source) async {
+    final picked = await _picker.pickImage(source: source, maxWidth: 800, maxHeight: 800);
+    if (picked != null) setState(() => _selectedImage = File(picked.path));
   }
 
-  Widget _buildFancyTextField({
-    required TextEditingController controller,
-    required String label,
-    IconData? icon,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      validator: (value) => value == null || value.isEmpty ? "${tr("enter")} $label" : null,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: icon != null ? Icon(icon, color: Colors.redAccent) : null,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-      ),
-    );
-  }
+  void _showAddExpenseSheet(BuildContext context, {Map<String, dynamic>? editingExpense}) {
+    if (editingExpense != null) {
+      _amountController.text = (editingExpense['amount'] as num).toString();
+      _noteController.text = editingExpense['note'] ?? '';
+      _selectedCategory = editingExpense['category'];
+      _selectedDate = DateTime.parse(editingExpense['date']);
+      _selectedImage =
+          editingExpense['imagePath'] != null ? File(editingExpense['imagePath']) : null;
+      _editingId = editingExpense['id'];
+    } else {
+      _clearForm();
+    }
 
-  Widget _buildFancyDropdown({
-    required String label,
-    required List<String> items,
-    required String? value,
-    required void Function(String?) onChanged,
-    IconData? icon,
-  }) {
-    return DropdownButtonFormField<String>(
-      value: value,
-      items: items.map((cat) => DropdownMenuItem(value: cat, child: Text(tr(cat)))).toList(),
-      onChanged: onChanged,
-      validator: (val) => val == null ? "${tr("choose")} $label" : null,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: icon != null ? Icon(icon, color: Colors.redAccent) : null,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-      ),
-    );
-  }
-
-  void _showAddExpenseSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -306,6 +246,39 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                   label: tr("note"),
                   icon: Icons.note_alt,
                 ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _pickImage(ImageSource.camera),
+                        icon: const Icon(Icons.camera_alt),
+                        label: Text(tr("camera")),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _pickImage(ImageSource.gallery),
+                        icon: const Icon(Icons.photo),
+                        label: Text(tr("gallery")),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_selectedImage != null)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      _selectedImage!,
+                      width: double.infinity,
+                      height: 180,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
@@ -330,6 +303,44 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildFancyTextField({
+    required TextEditingController controller,
+    required String label,
+    IconData? icon,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      validator: (value) => value == null || value.isEmpty ? "${tr("enter")} $label" : null,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: icon != null ? Icon(icon, color: Colors.redAccent) : null,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    );
+  }
+
+  Widget _buildFancyDropdown({
+    required String label,
+    required List<String> items,
+    required String? value,
+    required void Function(String?) onChanged,
+    IconData? icon,
+  }) {
+    return DropdownButtonFormField<String>(
+      value: value,
+      items: items.map((cat) => DropdownMenuItem(value: cat, child: Text(tr(cat)))).toList(),
+      onChanged: onChanged,
+      validator: (val) => val == null ? "${tr("choose")} $label" : null,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: icon != null ? Icon(icon, color: Colors.redAccent) : null,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
@@ -441,6 +452,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                       final exp = _filteredExpenseList[index];
                       final color = _categoryColors[exp["category"]] ?? Colors.grey;
                       final date = DateTime.parse(exp["date"]);
+                      final imagePath = exp["imagePath"] as String?;
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -467,6 +479,29 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                                   style: const TextStyle(fontSize: 12)),
                               if ((exp["note"] ?? "").isNotEmpty)
                                 Text(exp["note"], style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                              if (imagePath != null && imagePath.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8.0),
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => FullScreenImagePage(imageFile: File(imagePath)),
+                                        ),
+                                      );
+                                    },
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.file(
+                                        File(imagePath),
+                                        width: double.infinity,
+                                        height: 120,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                           trailing: Row(
@@ -474,10 +509,11 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                             children: [
                               IconButton(
                                   icon: const Icon(Icons.edit, color: Colors.orange, size: 20),
-                                  onPressed: () => _editExpense(exp)),
+                                  onPressed: () => _showAddExpenseSheet(context, editingExpense: exp)),
                               IconButton(
                                   icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                                  onPressed: () => _deleteExpense(exp["id"])),
+                                  onPressed: () => _confirmDeleteExpense(exp["id"]),
+                                ),
                             ],
                           ),
                         ),
@@ -508,24 +544,54 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           ListTile(
-                              leading: const Icon(Icons.picture_as_pdf),
-                              title: Text(tr("share_pdf")),
-                              onTap: () {
-                                Navigator.pop(context);
-                                _sharePDF();
-                              }),
+                            leading: const Icon(Icons.picture_as_pdf),
+                            title: Text(tr("share_pdf")),
+                            onTap: () {
+                              Navigator.pop(context);
+                              _sharePDF();
+                            },
+                          ),
                           ListTile(
-                              leading: const Icon(Icons.grid_on),
-                              title: Text(tr("share_excel")),
-                              onTap: () {
-                                Navigator.pop(context);
-                                _shareExcel();
-                              }),
+                            leading: const Icon(Icons.grid_on),
+                            title: Text(tr("share_excel")),
+                            onTap: () {
+                              Navigator.pop(context);
+                              _shareExcel();
+                            },
+                          ),
                         ],
                       ));
             },
-            backgroundColor: Colors.blue,
+            backgroundColor: Colors.blueGrey,
             child: const Icon(Icons.share, color: Colors.white),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class FullScreenImagePage extends StatelessWidget {
+  final File imageFile;
+  const FullScreenImagePage({super.key, required this.imageFile});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          Center(child: Image.file(imageFile, fit: BoxFit.contain, width: double.infinity)),
+          Positioned(
+            top: 40,
+            left: 16,
+            child: CircleAvatar(
+              backgroundColor: Colors.black45,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
           ),
         ],
       ),

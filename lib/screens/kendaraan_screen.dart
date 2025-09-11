@@ -78,7 +78,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
     }
   }
 
-  void _saveVehicle() async {
+  Future<void> _saveVehicle() async {
     if (!_formKey.currentState!.validate()) return;
     if (_taxDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -128,8 +128,6 @@ class _VehicleScreenState extends State<VehicleScreen> {
   }
 
   void _editVehicle(Map<String, dynamic> vehicle) {
-    if (vehicle == null) return;
-
     _editingVehicleId = vehicle['id'] as int?;
 
     _vehicleTypeController.text = vehicle['vehicleType'] ?? '';
@@ -137,15 +135,34 @@ class _VehicleScreenState extends State<VehicleScreen> {
     _lastOilChangeKmController.text = vehicle['lastOilKm']?.toString() ?? '';
     _oilUsageMonthsController.text = vehicle['oilUsageMonths']?.toString() ?? '';
 
-    final taxDateStr = vehicle['taxDate'] as String?;
-    final lastOilStr = vehicle['lastOilChangeDate'] as String?;
-    final nextOilStr = vehicle['nextOilDate'] as String?;
-    final reminderStr = vehicle['reminderDateTime'] as String?;
+    _taxDate = vehicle['taxDate'] != null ? DateTime.tryParse(vehicle['taxDate']) : null;
+    _lastOilChangeDate = vehicle['lastOilChangeDate'] != null ? DateTime.tryParse(vehicle['lastOilChangeDate']) : null;
+    _nextOilDate = vehicle['nextOilDate'] != null ? DateTime.tryParse(vehicle['nextOilDate']) : null;
+    _reminderDateTime = vehicle['reminderDateTime'] != null ? DateTime.tryParse(vehicle['reminderDateTime']) : null;
+  }
 
-    _taxDate = taxDateStr != null ? DateTime.tryParse(taxDateStr) : null;
-    _lastOilChangeDate = lastOilStr != null ? DateTime.tryParse(lastOilStr) : null;
-    _nextOilDate = nextOilStr != null ? DateTime.tryParse(nextOilStr) : null;
-    _reminderDateTime = reminderStr != null ? DateTime.tryParse(reminderStr) : null;
+  Future<void> _confirmDelete(int vehicleId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('confirm_delete'.tr()),
+        content: Text('delete_vehicle_confirm'.tr()),
+        actions: [
+          TextButton(
+            child: Text('cancel'.tr()),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          TextButton(
+            child: Text('delete'.tr(), style: const TextStyle(color: Colors.red)),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await DatabaseHelper.instance.deleteVehicle(vehicleId);
+      _refreshVehicles();
+    }
   }
 
   Future<void> _shareVehicleText(Map<String, dynamic> v) async {
@@ -165,28 +182,25 @@ ${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}
     final pdf = pw.Document();
     pdf.addPage(
       pw.Page(
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text('${v['vehicleType']} - ${v['plateNumber']}', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 8),
-              pw.Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}'),
-              pw.Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}'),
-              pw.Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}'),
-              pw.Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}'),
-              pw.Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}'),
-              pw.Text('${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}'),
-            ],
-          );
-        },
+        build: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text('${v['vehicleType']} - ${v['plateNumber']}', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            pw.Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}'),
+            pw.Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}'),
+            pw.Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}'),
+            pw.Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}'),
+            pw.Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}'),
+            pw.Text('${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}'),
+          ],
+        ),
       ),
     );
 
     final tempDir = await getTemporaryDirectory();
     final file = File('${tempDir.path}/vehicle_${v['id']}.pdf');
     await file.writeAsBytes(await pdf.save());
-
     await Share.shareXFiles([XFile(file.path)], text: 'Vehicle Info PDF');
   }
 
@@ -195,24 +209,21 @@ ${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}
     for (var v in vehicles) {
       pdf.addPage(
         pw.Page(
-          build: (pw.Context context) {
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text('${v['vehicleType']} - ${v['plateNumber']}', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-                pw.Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}'),
-                pw.Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}'),
-                pw.Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}'),
-                pw.Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}'),
-                pw.Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}'),
-                pw.Text('${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}'),
-              ],
-            );
-          },
+          build: (context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('${v['vehicleType']} - ${v['plateNumber']}', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('${'tax_date'.tr()}: ${_formatDate(v['taxDate'])}'),
+              pw.Text('${'last_oil_km'.tr()}: ${v['lastOilKm']}'),
+              pw.Text('${'oil_usage_months'.tr()}: ${v['oilUsageMonths']}'),
+              pw.Text('${'last_oil_change_date'.tr()}: ${_formatDate(v['lastOilChangeDate'])}'),
+              pw.Text('${'next_oil_date'.tr()}: ${_formatDate(v['nextOilDate'])}'),
+              pw.Text('${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}'),
+            ],
+          ),
         ),
       );
     }
-
     final tempDir = await getTemporaryDirectory();
     final file = File('${tempDir.path}/all_vehicles.pdf');
     await file.writeAsBytes(await pdf.save());
@@ -335,7 +346,7 @@ ${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}
                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             DropdownButtonFormField<String>(
-              value: _vehicleTypes.contains(_vehicleTypeController.text)
+              initialValue: _vehicleTypes.contains(_vehicleTypeController.text)
                   ? _vehicleTypeController.text
                   : null,
               items: _vehicleTypes
@@ -461,10 +472,7 @@ ${'reminder'.tr()}: ${_formatDate(v['reminderDateTime'], includeTime: true)}
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () async {
-                            await DatabaseHelper.instance.deleteVehicle(v['id']);
-                            _refreshVehicles();
-                          },
+                          onPressed: () => _confirmDelete(v['id']),
                         ),
                         IconButton(
                           icon: const Icon(Icons.picture_as_pdf, color: Colors.green),

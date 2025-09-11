@@ -27,7 +27,7 @@ class DatabaseHelper {
     final path = await databasePath;
     return await openDatabase(
       path,
-      version: 9,
+      version: 10, // versi terbaru
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -40,7 +40,8 @@ class DatabaseHelper {
         amount REAL NOT NULL,
         category TEXT,
         note TEXT,
-        date TEXT NOT NULL
+        date TEXT NOT NULL,
+        imagePath TEXT
       )
     ''');
 
@@ -50,7 +51,8 @@ class DatabaseHelper {
         amount REAL NOT NULL,
         category TEXT,
         note TEXT,
-        date TEXT NOT NULL
+        date TEXT NOT NULL,
+        imagePath TEXT
       )
     ''');
 
@@ -109,6 +111,10 @@ class DatabaseHelper {
     }
     if (oldVersion < 9) {
       await _addColumnIfNotExists(db, 'vehicles', 'reminderDateTime', 'TEXT');
+    }
+    if (oldVersion < 10) {
+      await _addColumnIfNotExists(db, 'income', 'imagePath', 'TEXT');
+      await _addColumnIfNotExists(db, 'expense', 'imagePath', 'TEXT');
     }
   }
 
@@ -438,8 +444,12 @@ class DatabaseHelper {
     double totalIncome = 0.0;
     double totalExpense = 0.0;
 
-    for (var inc in incomes) totalIncome += (inc['amount'] as num).toDouble();
-    for (var exp in expenses) totalExpense += (exp['amount'] as num).toDouble();
+    for (var inc in incomes) {
+      totalIncome += (inc['amount'] as num).toDouble();
+    }
+    for (var exp in expenses) {
+      totalExpense += (exp['amount'] as num).toDouble();
+    }
 
     return {'income': totalIncome, 'expense': totalExpense};
   }

@@ -2,9 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:pedometer/pedometer.dart';
 import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:easy_localization/easy_localization.dart';
 
-void main() {
-  runApp(const PedometerApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await EasyLocalization.ensureInitialized();
+
+  runApp(
+    EasyLocalization(
+      supportedLocales: const [Locale('en'), Locale('id')],
+      path: 'assets/langs', // folder JSON bahasa
+      fallbackLocale: const Locale('en'),
+      child: const PedometerApp(),
+    ),
+  );
 }
 
 class PedometerApp extends StatelessWidget {
@@ -14,6 +25,9 @@ class PedometerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: context.localizationDelegates,
+      supportedLocales: context.supportedLocales,
+      locale: context.locale,
       theme: ThemeData(
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: Colors.grey[100],
@@ -40,7 +54,7 @@ class _PedometerScreenState extends State<PedometerScreen> {
   PedometerState _pedometerState = PedometerState.stopped;
 
   int _totalStepsAtPause = 0; // total langkah saat pause
-  int _initialStepCount = 0;  // langkah awal saat start/resume
+  int _initialStepCount = 0; // langkah awal saat start/resume
   final List<Map<String, dynamic>> _history = []; // history langkah
 
   @override
@@ -89,7 +103,7 @@ class _PedometerScreenState extends State<PedometerScreen> {
     if (steps > 0) _saveHistory(steps);
 
     _totalStepsAtPause = _stepsNotifier.value;
-    _initialStepCount = 0; // reset agar saat resume hitung ulang
+    _initialStepCount = 0;
     setState(() {
       _pedometerState = PedometerState.paused;
     });
@@ -120,7 +134,7 @@ class _PedometerScreenState extends State<PedometerScreen> {
 
   void _onStepCount(StepCount event) {
     if (_initialStepCount == 0) {
-      _initialStepCount = event.steps; // catat langkah awal saat start/resume
+      _initialStepCount = event.steps;
     }
     _stepsNotifier.value = event.steps - _initialStepCount + _totalStepsAtPause;
   }
@@ -153,11 +167,11 @@ class _PedometerScreenState extends State<PedometerScreen> {
   String get _buttonLabel {
     switch (_pedometerState) {
       case PedometerState.stopped:
-        return 'Start';
+        return 'start'.tr();
       case PedometerState.running:
-        return 'Pause';
+        return 'pause'.tr();
       case PedometerState.paused:
-        return 'Continue';
+        return 'continue'.tr();
     }
   }
 
@@ -165,7 +179,7 @@ class _PedometerScreenState extends State<PedometerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pedometer', style: TextStyle(color: Colors.white)),
+        title: Text('pedometer'.tr(), style: const TextStyle(color: Colors.white)),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.blue,
@@ -181,9 +195,9 @@ class _PedometerScreenState extends State<PedometerScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Center(
-                      child: const Text(
-                        'Langkah Hari Ini',
-                        style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                      child: Text(
+                        'today_steps'.tr(),
+                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                       ),
                     ),
                     const SizedBox(height: 30),
@@ -214,7 +228,7 @@ class _PedometerScreenState extends State<PedometerScreen> {
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      'Goal: $_goal langkah',
+                                      'goal'.tr(args: [_goal.toString()]),
                                       style: const TextStyle(fontSize: 16, color: Colors.grey),
                                     ),
                                   ],
@@ -227,14 +241,10 @@ class _PedometerScreenState extends State<PedometerScreen> {
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      _pedometerState == PedometerState.running
-                          ? 'Sensor Aktif'
-                          : 'Sensor Mati',
+                      _pedometerState == PedometerState.running ? 'sensor_active'.tr() : 'sensor_off'.tr(),
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          color: _pedometerState == PedometerState.running
-                              ? Colors.green
-                              : Colors.red,
+                          color: _pedometerState == PedometerState.running ? Colors.green : Colors.red,
                           fontSize: 18,
                           fontWeight: FontWeight.bold),
                     ),
@@ -258,7 +268,7 @@ class _PedometerScreenState extends State<PedometerScreen> {
                               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10))),
-                          child: const Text('Reset', style: TextStyle(fontSize: 18)),
+                          child: Text('reset'.tr(), style: const TextStyle(fontSize: 18)),
                         ),
                       ],
                     ),
@@ -271,20 +281,24 @@ class _PedometerScreenState extends State<PedometerScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
-                            _buildStatItem(Icons.local_fire_department, 'Kalori', '${(_stepsNotifier.value * 0.04).toStringAsFixed(1)} kCal'),
-                            _buildStatItem(Icons.timer, 'Waktu', '${(_stepsNotifier.value / 100).toStringAsFixed(1)} menit'),
-                            _buildStatItem(Icons.map, 'Jarak', '${(_stepsNotifier.value * 0.0008).toStringAsFixed(2)} km'),
+                            _buildStatItem(Icons.local_fire_department, 'calories'.tr(),
+                                '${(_stepsNotifier.value * 0.04).toStringAsFixed(1)} kCal'),
+                            _buildStatItem(Icons.timer, 'time'.tr(),
+                                '${(_stepsNotifier.value / 100).toStringAsFixed(1)} mnt'),
+                            _buildStatItem(Icons.map, 'distance'.tr(),
+                                '${(_stepsNotifier.value * 0.0008).toStringAsFixed(2)} km'),
                           ],
                         ),
                       ),
                     ),
                     const SizedBox(height: 20),
-                    const Text('History Langkah', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    Text('history'.tr(),
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
                     SizedBox(
                       height: 300,
                       child: _history.isEmpty
-                          ? const Center(child: Text('Belum ada history'))
+                          ? Center(child: Text('no_history'.tr()))
                           : ListView.builder(
                               itemCount: _history.length,
                               itemBuilder: (context, index) {
@@ -292,9 +306,9 @@ class _PedometerScreenState extends State<PedometerScreen> {
                                 final time = item['time'] as DateTime;
                                 return ListTile(
                                   leading: const Icon(Icons.history),
-                                  title: Text('${item['steps']} langkah'),
+                                  title: Text('${item['steps']} ${'steps'.tr()}'),
                                   subtitle: Text(
-                                      'Kalori: ${item['calories']} kCal | Waktu: ${item['minutes']} mnt | Jarak: ${item['distance']} km\n${time.day}/${time.month}/${time.year} ${time.hour}:${time.minute.toString().padLeft(2, '0')}'),
+                                      '${'calories'.tr()}: ${item['calories']} kCal | ${'time'.tr()}: ${item['minutes']} mnt | ${'distance'.tr()}: ${item['distance']} km\n${time.day}/${time.month}/${time.year} ${time.hour}:${time.minute.toString().padLeft(2, '0')}'),
                                 );
                               },
                             ),
@@ -357,19 +371,11 @@ class _GoalCirclePainter extends CustomPainter {
     canvas.drawCircle(center, radius, backgroundPaint);
 
     final angle = 2 * 3.1415926535 * progress;
-    canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        -3.1415926535 / 2,
-        angle,
-        false,
-        progressPaint);
+    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), -3.1415926535 / 2,
+        angle, false, progressPaint);
 
-    canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        -3.1415926535 / 2,
-        2 * 3.1415926535,
-        false,
-        goalLinePaint);
+    canvas.drawArc(Rect.fromCircle(center: center, radius: radius), -3.1415926535 / 2,
+        2 * 3.1415926535, false, goalLinePaint);
   }
 
   @override

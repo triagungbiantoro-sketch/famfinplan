@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:image_picker/image_picker.dart';
 import '../db/database_helper.dart';
 import 'settings_notifier.dart';
 import '../services/export_service.dart';
+import 'package:share_plus/share_plus.dart';
 
 class IncomeScreen extends StatefulWidget {
   const IncomeScreen({super.key});
@@ -19,6 +22,8 @@ class _IncomeScreenState extends State<IncomeScreen> {
 
   String? _selectedCategory;
   DateTime? _selectedDate;
+  File? _selectedImage;
+  int? _editingId;
 
   List<Map<String, dynamic>> _incomeList = [];
   final List<String> _categories = ["salary", "bonus", "investment", "other"];
@@ -36,12 +41,14 @@ class _IncomeScreenState extends State<IncomeScreen> {
   String _currencySymbol = "Rp";
   String _currencyCode = "IDR";
 
+  final ImagePicker _picker = ImagePicker();
+
   @override
   void initState() {
     super.initState();
+    _selectedDate = DateTime.now();
     _loadSettings();
     _loadIncome();
-    _selectedDate = DateTime.now();
   }
 
   void _loadSettings() {
@@ -64,15 +71,15 @@ class _IncomeScreenState extends State<IncomeScreen> {
     });
   }
 
-  double get _totalIncomeThisMonth {
-    return _filteredIncomeList.fold(0, (sum, item) => sum + (item['amount'] as num));
-  }
-
   List<Map<String, dynamic>> get _filteredIncomeList {
     return _incomeList.where((income) {
       final date = DateTime.parse(income["date"]);
       return date.month == _selectedMonth && date.year == _selectedYear;
     }).toList();
+  }
+
+  double get _totalIncomeThisMonth {
+    return _filteredIncomeList.fold(0, (sum, item) => sum + (item['amount'] as num));
   }
 
   String _formatCurrency(double value) {
@@ -101,18 +108,21 @@ class _IncomeScreenState extends State<IncomeScreen> {
       final amount = _parseCurrency(_amountController.text);
       final note = _noteController.text;
 
-      await DatabaseHelper.instance.insertIncome({
+      final incomeData = {
         "amount": amount,
         "category": _selectedCategory!,
         "note": note,
         "date": _selectedDate!.toIso8601String(),
-      });
+        "imagePath": _selectedImage?.path,
+      };
 
-      _amountController.clear();
-      _noteController.clear();
-      _selectedCategory = null;
-      _selectedDate = DateTime.now();
+      if (_editingId != null) {
+        await DatabaseHelper.instance.updateIncome(_editingId!, incomeData);
+      } else {
+        await DatabaseHelper.instance.insertIncome(incomeData);
+      }
 
+      _clearForm();
       _loadIncome();
 
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -121,132 +131,61 @@ class _IncomeScreenState extends State<IncomeScreen> {
     }
   }
 
-  Future<void> _deleteIncome(int id) async {
-    await DatabaseHelper.instance.deleteIncome(id);
-    _loadIncome();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr("data_deleted"))));
+  void _clearForm() {
+    _amountController.clear();
+    _noteController.clear();
+    _selectedCategory = null;
+    _selectedDate = DateTime.now();
+    _selectedImage = null;
+    _editingId = null;
   }
 
-  Future<void> _editIncome(Map<String, dynamic> income) async {
-    final editAmountController =
-        TextEditingController(text: _formatCurrency((income["amount"] as num).toDouble()));
-    final editNoteController = TextEditingController(text: income["note"] ?? "");
-    String? editCategory = income["category"];
-    DateTime editDate = DateTime.parse(income["date"]);
-
-    showDialog(
+  Future<void> _confirmDeleteIncome(int id) async {
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(tr("edit_income")),
-        content: SingleChildScrollView(
-          child: Column(
-            children: [
-              _buildFancyTextField(
-                controller: editAmountController,
-                label: tr("amount"),
-                icon: Icons.attach_money,
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              _buildFancyDropdown(
-                label: tr("category"),
-                value: editCategory,
-                items: _categories,
-                onChanged: (val) => editCategory = val,
-                icon: Icons.category,
-              ),
-              const SizedBox(height: 12),
-              InkWell(
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: editDate,
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime(2100),
-                  );
-                  if (picked != null) setState(() => editDate = picked);
-                },
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: tr("date"),
-                    prefixIcon: const Icon(Icons.calendar_today),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                  child: Text(DateFormat("dd/MM/yyyy", context.locale.toString()).format(editDate)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _buildFancyTextField(
-                controller: editNoteController,
-                label: tr("note"),
-                icon: Icons.note_alt,
-              ),
-            ],
-          ),
-        ),
+        title: Text(tr("confirm_delete")),
+        content: Text(tr("delete_income_confirm")),
         actions: [
-          TextButton(child: Text(tr("cancel")), onPressed: () => Navigator.pop(context)),
+          TextButton(
+            child: Text(tr("cancel")),
+            onPressed: () => Navigator.pop(context, false),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: Text(tr("save"), style: const TextStyle(color: Colors.white)),
-            onPressed: () async {
-              final updatedAmount = _parseCurrency(editAmountController.text);
-              await DatabaseHelper.instance.updateIncome(income["id"], {
-                "amount": updatedAmount,
-                "category": editCategory ?? "other",
-                "note": editNoteController.text,
-                "date": editDate.toIso8601String(),
-              });
-              Navigator.pop(context);
-              _loadIncome();
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(SnackBar(content: Text(tr("data_updated"))));
-            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: Text(tr("delete"), style: const TextStyle(color: Colors.white)),
+            onPressed: () => Navigator.pop(context, true),
           ),
         ],
       ),
     );
+
+    if (confirm == true) {
+      await DatabaseHelper.instance.deleteIncome(id);
+      _loadIncome();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(tr("data_deleted"))));
+    }
   }
 
-  Widget _buildFancyTextField({
-    required TextEditingController controller,
-    required String label,
-    IconData? icon,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      validator: (value) => value == null || value.isEmpty ? "${tr("enter")} $label" : null,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: icon != null ? Icon(icon, color: Colors.green) : null,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-      ),
-    );
+  Future<void> _pickImage(ImageSource source) async {
+    final picked = await _picker.pickImage(source: source, maxWidth: 800, maxHeight: 800);
+    if (picked != null) setState(() => _selectedImage = File(picked.path));
   }
 
-  Widget _buildFancyDropdown({
-    required String label,
-    required List<String> items,
-    required String? value,
-    required void Function(String?) onChanged,
-    IconData? icon,
-  }) {
-    return DropdownButtonFormField<String>(
-      value: value,
-      items: items.map((cat) => DropdownMenuItem(value: cat, child: Text(tr(cat)))).toList(),
-      onChanged: onChanged,
-      validator: (val) => val == null ? "${tr("choose")} $label" : null,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: icon != null ? Icon(icon, color: Colors.green) : null,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-      ),
-    );
-  }
+  void _showAddIncomeSheet({Map<String, dynamic>? editingIncome}) {
+    if (editingIncome != null) {
+      _amountController.text = (editingIncome['amount'] as num).toString();
+      _noteController.text = editingIncome['note'] ?? '';
+      _selectedCategory = editingIncome['category'];
+      _selectedDate = DateTime.parse(editingIncome['date']);
+      _selectedImage =
+          editingIncome['imagePath'] != null ? File(editingIncome['imagePath']) : null;
+      _editingId = editingIncome['id'];
+    } else {
+      _clearForm();
+    }
 
-  void _showAddIncomeSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -263,19 +202,17 @@ class _IncomeScreenState extends State<IncomeScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _buildFancyTextField(
-                  controller: _amountController,
-                  label: tr("amount"),
-                  icon: Icons.attach_money,
-                  keyboardType: TextInputType.number,
-                ),
+                    controller: _amountController,
+                    label: tr("amount"),
+                    icon: Icons.attach_money,
+                    keyboardType: TextInputType.number),
                 const SizedBox(height: 12),
                 _buildFancyDropdown(
-                  label: tr("category"),
-                  value: _selectedCategory,
-                  items: _categories,
-                  onChanged: (val) => setState(() => _selectedCategory = val),
-                  icon: Icons.category,
-                ),
+                    label: tr("category"),
+                    value: _selectedCategory,
+                    items: _categories,
+                    onChanged: (val) => setState(() => _selectedCategory = val),
+                    icon: Icons.category),
                 const SizedBox(height: 12),
                 InkWell(
                   onTap: () async {
@@ -303,6 +240,31 @@ class _IncomeScreenState extends State<IncomeScreen> {
                   label: tr("note"),
                   icon: Icons.note_alt,
                 ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                          onPressed: () => _pickImage(ImageSource.camera),
+                          icon: const Icon(Icons.camera_alt),
+                          label: Text(tr("camera")),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                          onPressed: () => _pickImage(ImageSource.gallery),
+                          icon: const Icon(Icons.photo),
+                          label: Text(tr("gallery")),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_selectedImage != null)
+                  ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(_selectedImage!, width: double.infinity, height: 180, fit: BoxFit.cover)),
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
@@ -314,12 +276,9 @@ class _IncomeScreenState extends State<IncomeScreen> {
                     icon: const Icon(Icons.save, color: Colors.white),
                     label: Text(tr("save"), style: const TextStyle(color: Colors.white)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -331,15 +290,47 @@ class _IncomeScreenState extends State<IncomeScreen> {
     );
   }
 
+  Widget _buildFancyTextField(
+          {required TextEditingController controller,
+          required String label,
+          IconData? icon,
+          TextInputType keyboardType = TextInputType.text}) =>
+      TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        validator: (value) => value == null || value.isEmpty ? "${tr("enter")} $label" : null,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: icon != null ? Icon(icon, color: Colors.green) : null,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      );
+
+  Widget _buildFancyDropdown(
+          {required String label,
+          required List<String> items,
+          required String? value,
+          required void Function(String?) onChanged,
+          IconData? icon}) =>
+      DropdownButtonFormField<String>(
+        value: value,
+        items: items.map((cat) => DropdownMenuItem(value: cat, child: Text(tr(cat)))).toList(),
+        onChanged: onChanged,
+        validator: (val) => val == null ? "${tr("choose")} $label" : null,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: icon != null ? Icon(icon, color: Colors.green) : null,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      );
+
   Future<void> _sharePDF() async {
-    final path = await ExportService.exportIncomePDF(
-        month: _selectedMonth, year: _selectedYear);
+    final path = await ExportService.exportIncomePDF(month: _selectedMonth, year: _selectedYear);
     await ExportService.shareFile(path, text: tr("share_income_pdf"));
   }
 
   Future<void> _shareExcel() async {
-    final path = await ExportService.exportIncomeExcel(
-        month: _selectedMonth, year: _selectedYear);
+    final path = await ExportService.exportIncomeExcel(month: _selectedMonth, year: _selectedYear);
     await ExportService.shareFile(path, text: tr("share_income_excel"));
   }
 
@@ -356,24 +347,12 @@ class _IncomeScreenState extends State<IncomeScreen> {
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
         backgroundColor: Colors.green,
-        title: Text(tr("income"), style: const TextStyle(color: Colors.white)),
+        title: Text(tr("incomes"), style: const TextStyle(color: Colors.white)),
         centerTitle: true,
-        actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) async {
-              if (value == 'pdf') await _sharePDF();
-              if (value == 'excel') await _shareExcel();
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(value: 'pdf', child: Text(tr("share_pdf"))),
-              PopupMenuItem(value: 'excel', child: Text(tr("share_excel"))),
-            ],
-          ),
-        ],
       ),
       body: Column(
         children: [
-          // Total income bulan ini
+          // Total income
           Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -382,25 +361,23 @@ class _IncomeScreenState extends State<IncomeScreen> {
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
-                  const Icon(Icons.account_balance_wallet, size: 28, color: Colors.green),
+                  const Icon(Icons.account_balance, size: 28, color: Colors.green),
                   const SizedBox(width: 12),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(tr("total_income_this_month"),
-                          style: const TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black54)),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black54)),
                       const SizedBox(height: 4),
                       Text(_formatCurrency(_totalIncomeThisMonth),
-                          style: const TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
                     ],
                   ),
                 ],
               ),
             ),
           ),
-          // Dropdown bulan & tahun
+          // Month/Year filter
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Row(
@@ -411,8 +388,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                     items: List.generate(12, (i) {
                       final month = i + 1;
                       return DropdownMenuItem(
-                          value: month,
-                          child: Text(DateFormat.MMMM().format(DateTime(0, month))));
+                          value: month, child: Text(DateFormat.MMMM().format(DateTime(0, month))));
                     }),
                     onChanged: (val) => setState(() => _selectedMonth = val ?? _selectedMonth),
                     decoration: const InputDecoration(
@@ -440,6 +416,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
               ],
             ),
           ),
+          // Income list
           Expanded(
             child: _filteredIncomeList.isEmpty
                 ? Center(child: Text(tr("no_data")))
@@ -447,9 +424,10 @@ class _IncomeScreenState extends State<IncomeScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     itemCount: _filteredIncomeList.length,
                     itemBuilder: (context, index) {
-                      final income = _filteredIncomeList[index];
-                      final color = _categoryColors[income["category"]] ?? Colors.grey;
-                      final date = DateTime.parse(income["date"]);
+                      final inc = _filteredIncomeList[index];
+                      final color = _categoryColors[inc["category"]] ?? Colors.grey;
+                      final date = DateTime.parse(inc["date"]);
+                      final imagePath = inc["imagePath"] as String?;
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -463,19 +441,42 @@ class _IncomeScreenState extends State<IncomeScreen> {
                             child: Icon(Icons.attach_money, color: color, size: 20),
                           ),
                           title: Text(
-                            _formatCurrency((income["amount"] as num).toDouble()),
+                            _formatCurrency((inc["amount"] as num).toDouble()),
                             style: TextStyle(
                                 fontWeight: FontWeight.bold, color: Colors.grey.shade900, fontSize: 16),
                           ),
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(tr(income["category"]),
+                              Text(tr(inc["category"]),
                                   style: TextStyle(color: color, fontWeight: FontWeight.w600)),
                               Text(DateFormat("dd/MM/yyyy", context.locale.toString()).format(date),
                                   style: const TextStyle(fontSize: 12)),
-                              if ((income["note"] ?? "").isNotEmpty)
-                                Text(income["note"], style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                              if ((inc["note"] ?? "").isNotEmpty)
+                                Text(inc["note"], style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                              if (imagePath != null && imagePath.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8.0),
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => FullScreenImagePage(imageFile: File(imagePath)),
+                                        ),
+                                      );
+                                    },
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.file(
+                                        File(imagePath),
+                                        width: double.infinity,
+                                        height: 120,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                           trailing: Row(
@@ -483,10 +484,10 @@ class _IncomeScreenState extends State<IncomeScreen> {
                             children: [
                               IconButton(
                                   icon: const Icon(Icons.edit, color: Colors.orange, size: 20),
-                                  onPressed: () => _editIncome(income)),
+                                  onPressed: () => _showAddIncomeSheet(editingIncome: inc)),
                               IconButton(
                                   icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                                  onPressed: () => _deleteIncome(income["id"])),
+                                  onPressed: () => _confirmDeleteIncome(inc["id"])),
                             ],
                           ),
                         ),
@@ -501,7 +502,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
         children: [
           FloatingActionButton(
             heroTag: "add_income",
-            onPressed: () => _showAddIncomeSheet(context),
+            onPressed: () => _showAddIncomeSheet(),
             backgroundColor: Colors.green,
             child: const Icon(Icons.add, color: Colors.white),
           ),
@@ -537,6 +538,32 @@ class _IncomeScreenState extends State<IncomeScreen> {
             child: const Icon(Icons.share, color: Colors.white),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class FullScreenImagePage extends StatelessWidget {
+  final File imageFile;
+
+  const FullScreenImagePage({super.key, required this.imageFile});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          panEnabled: true,
+          minScale: 0.5,
+          maxScale: 4,
+          child: Image.file(imageFile),
+        ),
       ),
     );
   }

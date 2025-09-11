@@ -345,6 +345,36 @@ class _NotesScreenState extends State<NotesScreen> {
     return _filteredNotes.sublist(start, end);
   }
 
+  Future<void> _confirmDelete(Map<String, dynamic> note) async {
+  final confirm = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('confirm_delete'.tr()),
+      content: Text('delete_note_confirmation'.tr(args: [note['title'] ?? ''])),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text('cancel'.tr()),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () => Navigator.pop(context, true),
+          child: Text('delete'.tr()),
+        ),
+      ],
+    ),
+  );
+
+  if (confirm == true) {
+    await NotesDatabase.instance.deleteNote(note['id']);
+    await _refreshNotes();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('note_deleted'.tr())),
+    );
+  }
+}
+
+
   Future<void> _scheduleAlarm(Map<String, dynamic> note) async {
     try {
       final now = DateTime.now();
@@ -517,7 +547,7 @@ class _NotesScreenState extends State<NotesScreen> {
                                               ),
                                               body: Center(
                                                 child: InteractiveViewer(
-                                                  child: Image.file(File(imagePath!)),
+                                                  child: Image.file(File(imagePath)),
                                                 ),
                                               ),
                                             ),
@@ -543,12 +573,9 @@ class _NotesScreenState extends State<NotesScreen> {
                                           onPressed: () => _shareNoteWithOptions(note),
                                           icon: const Icon(Icons.share, color: Colors.green)),
                                       IconButton(
-                                        onPressed: () async {
-                                          await NotesDatabase.instance.deleteNote(note['id']);
-                                          await _refreshNotes();
-                                        },
-                                        icon: const Icon(Icons.delete, color: Colors.red),
-                                      ),
+                                          onPressed: () => _confirmDelete(note),
+                                          icon: const Icon(Icons.delete, color: Colors.red),
+                                       ),
                                     ],
                                   )
                                 ]
