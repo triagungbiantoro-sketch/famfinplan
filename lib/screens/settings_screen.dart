@@ -11,6 +11,9 @@ import 'package:sqflite/sqflite.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../db/database_helper.dart';
+import '../db/event_db.dart';
+import '../db/notes_database.dart';
+import '../db/jadwalmingguan_db.dart';
 import 'settings_notifier.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -88,7 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final encoder = ZipFileEncoder();
       encoder.create(zipFilePath);
 
-      final dbFiles = ['famfinplan.db', 'notes.db'];
+      final dbFiles = ['famfinplan.db', 'event.db', 'notes.db', 'jadwal_mingguan.db'];
 
       for (var dbName in dbFiles) {
         final dbPath = await _getDatabasePath(dbName);
@@ -177,9 +180,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: const Text("OK"),
             ),
             ElevatedButton(
-              onPressed: () {
-                SystemNavigator.pop();
-              },
+              onPressed: () => SystemNavigator.pop(),
               child: Text(tr("restart_app")),
             ),
           ],
@@ -286,7 +287,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
           ),
-          // Database Actions as ExpansionTile
+          // Database Actions
           Card(
             elevation: 2,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -366,6 +367,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                           if (confirm == true) {
                             await DatabaseHelper.instance.resetDatabase();
+                            await EventDatabase.instance.resetDatabase();
+                            await NotesDatabase.instance.resetDatabase();
+                            await JadwalMingguanDB.instance.resetDatabase();
+
                             if (!mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(tr("database_reset_success"))),

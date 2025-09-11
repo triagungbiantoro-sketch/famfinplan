@@ -188,5 +188,7 @@
   "confirm_reset_database": "Konfirmasi Reset Database",
   "type_reset_to_confirm": "Ketik 'RESET' untuk konfirmasi",
   "wrong_confirmation_text": "Teks konfirmasi salah!",
-  "database_reset_success": "Database berhasil direset"
+  "database_reset_success": "Database berhasil direset",
+  "reminder_set_for": "Reminder diset untuk {}",
+  "reminder_failed": "Gagal membuat reminder"
 }

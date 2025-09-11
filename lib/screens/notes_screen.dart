@@ -5,8 +5,6 @@ import 'package:share_plus/share_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/timezone.dart' as tz;
 import 'package:easy_localization/easy_localization.dart';
 
 import '../db/notes_database.dart';
@@ -29,22 +27,11 @@ class _NotesScreenState extends State<NotesScreen> {
   int _currentPage = 0;
   final int _itemsPerPage = 4;
 
-  late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
-
   @override
   void initState() {
     super.initState();
-    _initNotifications();
     _refreshNotes();
     _searchController.addListener(_onSearchChanged);
-  }
-
-  void _initNotifications() {
-    flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings();
-    const initSettings = InitializationSettings(android: androidInit, iOS: iosInit);
-    flutterLocalNotificationsPlugin.initialize(initSettings);
   }
 
   Future<void> _refreshNotes({bool scrollToFirst = true}) async {
@@ -162,7 +149,6 @@ class _NotesScreenState extends State<NotesScreen> {
                   'date': note == null
                       ? DateFormat('yyyy-MM-dd HH:mm:ss').format(now)
                       : note['date'],
-                  'alarmDate': note?['alarmDate'],
                   'imagePath': imageFile?.path ?? note?['imagePath'],
                 };
 
@@ -346,96 +332,30 @@ class _NotesScreenState extends State<NotesScreen> {
   }
 
   Future<void> _confirmDelete(Map<String, dynamic> note) async {
-  final confirm = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('confirm_delete'.tr()),
-      content: Text('delete_note_confirmation'.tr(args: [note['title'] ?? ''])),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: Text('cancel'.tr()),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          onPressed: () => Navigator.pop(context, true),
-          child: Text('delete'.tr()),
-        ),
-      ],
-    ),
-  );
-
-  if (confirm == true) {
-    await NotesDatabase.instance.deleteNote(note['id']);
-    await _refreshNotes();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('note_deleted'.tr())),
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('confirm_delete'.tr()),
+        content: Text('delete_note_confirmation'.tr(args: [note['title'] ?? ''])),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('cancel'.tr()),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('delete'.tr()),
+          ),
+        ],
+      ),
     );
-  }
-}
 
-
-  Future<void> _scheduleAlarm(Map<String, dynamic> note) async {
-    try {
-      final now = DateTime.now();
-
-      DateTime? selectedDate = await showDatePicker(
-        context: context,
-        initialDate: now,
-        firstDate: now,
-        lastDate: DateTime(now.year + 5),
-      );
-      if (selectedDate == null) return;
-
-      TimeOfDay? selectedTime = await showTimePicker(
-        context: context,
-        initialTime: TimeOfDay.now(),
-      );
-      if (selectedTime == null) return;
-
-      final scheduledDate = DateTime(
-        selectedDate.year,
-        selectedDate.month,
-        selectedDate.day,
-        selectedTime.hour,
-        selectedTime.minute,
-      );
-
-      tz.TZDateTime scheduledTZDate = tz.TZDateTime.from(scheduledDate, tz.local);
-      if (scheduledTZDate.isBefore(tz.TZDateTime.now(tz.local))) {
-        scheduledTZDate = scheduledTZDate.add(const Duration(days: 1));
-      }
-
-      final androidDetails = AndroidNotificationDetails(
-        'note_alarm_channel',
-        'Note Alarm',
-        channelDescription: 'Channel for note reminders',
-        importance: Importance.max,
-        priority: Priority.high,
-      );
-      final iosDetails = DarwinNotificationDetails();
-      final notificationDetails = NotificationDetails(android: androidDetails, iOS: iosDetails);
-
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        note['id'] ?? DateTime.now().millisecondsSinceEpoch,
-        note['title'],
-        note['content'],
-        scheduledTZDate,
-        notificationDetails,
-        androidAllowWhileIdle: true,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.dateAndTime,
-      );
-
-      note['alarmDate'] = scheduledTZDate.toIso8601String();
-      await NotesDatabase.instance.updateNote(note);
-
+    if (confirm == true) {
+      await NotesDatabase.instance.deleteNote(note['id']);
+      await _refreshNotes();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('alarm_set_for'.tr(args: [_formatDate(scheduledTZDate.toString())]))),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('alarm_failed'.tr())),
+        SnackBar(content: Text('note_deleted'.tr())),
       );
     }
   }
@@ -513,50 +433,49 @@ class _NotesScreenState extends State<NotesScreen> {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    note['title'] ?? '',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
+                                    note['title'] ?? 'No Title',
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                                   ),
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 6),
                                 Text(
-                                  '${'date_label'.tr()}: ${_formatDate(note['date'])}',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                  _formatDate(note['date']),
+                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                                 ),
                                 if (isExpanded) ...[
                                   const SizedBox(height: 8),
-                                  Text(note['content'] ?? '', style: const TextStyle(fontSize: 14)),
-                                  if (imagePath?.isNotEmpty ?? false)
-                                    GestureDetector(
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => Scaffold(
-                                              backgroundColor: Colors.black,
-                                              appBar: AppBar(
-                                                backgroundColor: Colors.black,
-                                                leading: IconButton(
-                                                  icon: const Icon(Icons.arrow_back),
-                                                  color: Colors.white,
-                                                  onPressed: () => Navigator.pop(context),
+                                  Text(note['content'] ?? ''),
+                                  if (imagePath != null && imagePath.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8.0),
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) => Scaffold(
+                                                  backgroundColor: Colors.black,
+                                                  appBar: AppBar(
+                                                    backgroundColor: Colors.transparent,
+                                                    elevation: 0,
+                                                    iconTheme: const IconThemeData(color: Colors.white), // <-- tombol back jadi putih
+                                                  ),
+                                                  body: Center(
+                                                    child: InteractiveViewer(
+                                                      child: Image.file(File(imagePath)),
+                                                    ),
+                                                  ),
                                                 ),
                                               ),
-                                              body: Center(
-                                                child: InteractiveViewer(
-                                                  child: Image.file(File(imagePath)),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(top: 8.0),
-                                        child: Image.file(File(imagePath!), height: 150),
+                                            );
+
+                                        },
+                                        child: Image.file(
+                                          File(imagePath),
+                                          height: 120,
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                        ),
                                       ),
                                     ),
                                   const SizedBox(height: 8),
@@ -564,21 +483,23 @@ class _NotesScreenState extends State<NotesScreen> {
                                     mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
                                       IconButton(
-                                          onPressed: () => _showNoteDialog(note: note),
-                                          icon: const Icon(Icons.edit, color: Colors.blue)),
+                                        onPressed: () => _showNoteDialog(note: note),
+                                        icon: const Icon(Icons.edit),
+                                        color: Colors.blue,
+                                      ),
                                       IconButton(
-                                          onPressed: () => _scheduleAlarm(note),
-                                          icon: const Icon(Icons.alarm, color: Colors.orange)),
+                                        onPressed: () => _confirmDelete(note),
+                                        icon: const Icon(Icons.delete),
+                                        color: Colors.red,
+                                      ),
                                       IconButton(
-                                          onPressed: () => _shareNoteWithOptions(note),
-                                          icon: const Icon(Icons.share, color: Colors.green)),
-                                      IconButton(
-                                          onPressed: () => _confirmDelete(note),
-                                          icon: const Icon(Icons.delete, color: Colors.red),
-                                       ),
+                                        onPressed: () => _shareNoteWithOptions(note),
+                                        icon: const Icon(Icons.share),
+                                        color: Colors.green,
+                                      ),
                                     ],
-                                  )
-                                ]
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -587,20 +508,20 @@ class _NotesScreenState extends State<NotesScreen> {
                     },
                   ),
           ),
-          if (_filteredNotes.length > _itemsPerPage)
+          if (totalPages > 1)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.chevron_left),
                     onPressed: _currentPage > 0 ? () => setState(() => _currentPage--) : null,
+                    icon: const Icon(Icons.arrow_back),
                   ),
                   Text('${_currentPage + 1} / $totalPages'),
                   IconButton(
-                    icon: const Icon(Icons.chevron_right),
                     onPressed: _currentPage < totalPages - 1 ? () => setState(() => _currentPage++) : null,
+                    icon: const Icon(Icons.arrow_forward),
                   ),
                 ],
               ),
@@ -610,7 +531,7 @@ class _NotesScreenState extends State<NotesScreen> {
       floatingActionButton: FloatingActionButton(
         backgroundColor: _primaryColor,
         onPressed: () => _showNoteDialog(),
-        child: const Icon(Icons.add),
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }

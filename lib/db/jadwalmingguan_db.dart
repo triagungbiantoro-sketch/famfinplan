@@ -75,6 +75,13 @@ class JadwalMingguanDB {
     );
   }
 
+    Future<void> resetDatabase() async {
+    final db = await instance.database;
+    await db.execute('DROP TABLE IF EXISTS jadwal_mingguan');
+    await _createDB(db, 1); // versi saat ini
+  }
+
+
   Future close() async {
     final db = await instance.database;
     db.close();

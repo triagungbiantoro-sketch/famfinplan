@@ -91,4 +91,11 @@ class NotesDatabase {
     Database db = await instance.database;
     return await db.delete('notes');
   }
+
+    Future<void> resetDatabase() async {
+    final db = await instance.database;
+    await db.execute('DROP TABLE IF EXISTS notes');
+    await _onCreate(db, 3); // versi saat ini
+  }
+
 }

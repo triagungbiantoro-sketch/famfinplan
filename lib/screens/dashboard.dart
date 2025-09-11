@@ -9,6 +9,7 @@ import 'notes_screen.dart';
 import 'summary_card.dart';
 import 'pedometer_screen.dart';
 import 'jadwal_screen.dart'; 
+import 'event_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -80,18 +81,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         },
       ),
       _DashboardMenu(
-        icon: Icons.calendar_month, // icon untuk Jadwal
-        label: "Jadwal",           // bisa juga pakai tr("jadwal") jika ditambahkan di translation
-        color: Colors.deepPurple,
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const JadwalScreen()),
-          );
-        },
-      ),
-      
-      _DashboardMenu(
         icon: Icons.directions_car,
         label: tr("vehicle"),
         color: Colors.purple,
@@ -102,6 +91,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
           );
         },
       ),
+      _DashboardMenu(
+        icon: Icons.calendar_month, // icon untuk Jadwal
+        label: "Jadwal",           // bisa juga pakai tr("jadwal") jika ditambahkan di translation
+        color: Colors.deepPurple,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const JadwalScreen()),
+          );
+        },
+      ),      
+      
+      _DashboardMenu(
+          icon: Icons.event,
+          label: "Event", // bisa juga tr("event") jika ditambahkan di translation
+          color: Colors.indigo,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const EventScreen()),
+            );
+          },
+        ),
       _DashboardMenu(
         icon: Icons.tune,
         label: tr("settings"),
