@@ -9,6 +9,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../db/database_helper.dart';
 import '../db/event_db.dart';
@@ -40,11 +41,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
   };
 
   final ScrollController _scrollController = ScrollController();
+  InterstitialAd? _interstitialAd;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _loadInterstitialAd();
+  }
+
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: 'ca-app-pub-3940256099942544/1033173712',
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) => _interstitialAd = ad,
+        onAdFailedToLoad: (err) {
+          debugPrint('Failed to load interstitial ad: $err');
+          _interstitialAd = null;
+        },
+      ),
+    );
+  }
+
+  void _showInterstitialAd() {
+    if (_interstitialAd != null) {
+      _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          ad.dispose();
+          _loadInterstitialAd();
+        },
+        onAdFailedToShowFullScreenContent: (ad, err) {
+          ad.dispose();
+          _loadInterstitialAd();
+        },
+      );
+      _interstitialAd!.show();
+      _interstitialAd = null;
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -96,9 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       for (var dbName in dbFiles) {
         final dbPath = await _getDatabasePath(dbName);
         final dbFile = File(dbPath);
-        if (await dbFile.exists()) {
-          encoder.addFile(dbFile);
-        }
+        if (await dbFile.exists()) encoder.addFile(dbFile);
       }
 
       encoder.close();
@@ -113,6 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _backupAllDatabases() async {
+    _showInterstitialAd();
     final zipPath = await _createBackupZip();
     if (zipPath != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -122,6 +155,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _shareDatabase() async {
+    _showInterstitialAd();
     final zipPath = await _createBackupZip();
     if (zipPath == null) return;
 
@@ -136,6 +170,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _restoreFromZip() async {
+    _showInterstitialAd();
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -248,6 +283,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _resetDatabase() async {
+    _showInterstitialAd();
+    final controller = TextEditingController();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr("confirm_reset_database")),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(tr("type_reset_to_confirm")),
+            const SizedBox(height: 8),
+            TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                hintText: "RESET",
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(tr("cancel")),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              if (controller.text.trim().toUpperCase() == "RESET") {
+                Navigator.of(ctx).pop(true);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(tr("wrong_confirmation_text"))),
+                );
+              }
+            },
+            child: Text(tr("confirm")),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await DatabaseHelper.instance.resetDatabase();
+      await EventDatabase.instance.resetDatabase();
+      await NotesDatabase.instance.resetDatabase();
+      await JadwalMingguanDB.instance.resetDatabase();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr("database_reset_success"))),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -260,7 +351,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
-          // Currency
           _buildCard(
             tr("currency"),
             Icons.attach_money,
@@ -271,7 +361,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (value) => setState(() => selectedCurrency = value!),
             ),
           ),
-          // Language
           _buildCard(
             tr("language"),
             Icons.language,
@@ -287,7 +376,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
           ),
-          // Database Actions
           Card(
             elevation: 2,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -323,60 +411,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         label: tr("reset_database"),
                         description: tr("reset_database_desc"),
                         color: Colors.red,
-                        onPressed: () async {
-                          final controller = TextEditingController();
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: Text(tr("confirm_reset_database")),
-                              content: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(tr("type_reset_to_confirm")),
-                                  const SizedBox(height: 8),
-                                  TextField(
-                                    controller: controller,
-                                    decoration: InputDecoration(
-                                      hintText: "RESET",
-                                      border: const OutlineInputBorder(),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(ctx).pop(false),
-                                  child: Text(tr("cancel")),
-                                ),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                  onPressed: () {
-                                    if (controller.text.trim().toUpperCase() == "RESET") {
-                                      Navigator.of(ctx).pop(true);
-                                    } else {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text(tr("wrong_confirmation_text"))),
-                                      );
-                                    }
-                                  },
-                                  child: Text(tr("confirm")),
-                                ),
-                              ],
-                            ),
-                          );
-
-                          if (confirm == true) {
-                            await DatabaseHelper.instance.resetDatabase();
-                            await EventDatabase.instance.resetDatabase();
-                            await NotesDatabase.instance.resetDatabase();
-                            await JadwalMingguanDB.instance.resetDatabase();
-
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(tr("database_reset_success"))),
-                            );
-                          }
-                        },
+                        onPressed: _resetDatabase,
                       ),
                     ],
                   ),

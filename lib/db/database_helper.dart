@@ -33,6 +33,18 @@ class DatabaseHelper {
     );
   }
 
+  Future<void> updateUsageRealized(int id, int realized) async {
+  final db = await database;
+  await db.update(
+    'budget_usage',
+    {'realized': realized},
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+  dataChanged.notifyListeners(); // biar UI reload otomatis
+}
+
+
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE income (

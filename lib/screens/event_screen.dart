@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../services/notification_service.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart'; // <-- import AdMob
 import '../db/event_db.dart';
 
 class EventScreen extends StatefulWidget {
@@ -11,341 +11,389 @@ class EventScreen extends StatefulWidget {
 }
 
 class _EventScreenState extends State<EventScreen> {
-  List<Event> _events = [];
+  late Future<List<Event>> _eventList;
+
+  InterstitialAd? _interstitialAd;
 
   @override
   void initState() {
     super.initState();
     _refreshEvents();
+    _loadInterstitialAd();
   }
 
-  Future<void> _refreshEvents() async {
-    final events = await EventDatabase.instance.getAllEvents();
+  void _refreshEvents() {
     setState(() {
-      _events = events;
+      _eventList = EventDatabase.instance.getAllEvents();
     });
   }
 
-  Color _priorityColor(int priority) {
-    switch (priority) {
-      case 1:
-        return Colors.green;
-      case 2:
-        return Colors.orange;
-      case 3:
-        return Colors.red;
-      default:
-        return Colors.grey;
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: 'ca-app-pub-3940256099942544/1033173712', // <-- ganti dengan ID AdMob Anda
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _interstitialAd = ad;
+        },
+        onAdFailedToLoad: (err) {
+          debugPrint('Failed to load interstitial ad: $err');
+          _interstitialAd = null;
+        },
+      ),
+    );
+  }
+
+  void _showInterstitialAd() {
+    if (_interstitialAd != null) {
+      _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          ad.dispose();
+          _loadInterstitialAd(); // load ad berikutnya
+        },
+        onAdFailedToShowFullScreenContent: (ad, err) {
+          ad.dispose();
+          _loadInterstitialAd();
+        },
+      );
+      _interstitialAd!.show();
+      _interstitialAd = null;
     }
   }
 
-  bool _isUpcoming(DateTime date) {
-    final now = DateTime.now();
-    return date.isAfter(now) && date.isBefore(now.add(const Duration(hours: 24)));
-  }
+  Future<void> _showEventForm({Event? event}) async {
+    // Tampilkan interstitial saat buka form
+    _showInterstitialAd();
 
-  Future<void> _showEventDialog({Event? event}) async {
-    final _titleController = TextEditingController(text: event?.title ?? '');
-    final _descController = TextEditingController(text: event?.description ?? '');
-    final _categoryController = TextEditingController(text: event?.category ?? '');
-    DateTime _eventDate = event?.eventDate ?? DateTime.now();
-    int _priority = event?.priority ?? 2;
-    int _reminder = event?.reminderMinutes ?? 0;
+    final titleController = TextEditingController(text: event?.title ?? "");
+    final descController = TextEditingController(text: event?.description ?? "");
+    final categoryController = TextEditingController(text: event?.category ?? "");
+    DateTime selectedDate = event?.eventDate ?? DateTime.now();
+    int priority = event?.priority ?? 2;
+    int reminderMinutes = event?.reminderMinutes ?? 0;
 
     await showDialog(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text(event == null ? 'Tambah Event' : 'Edit Event',
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Title
-                TextField(
-                  controller: _titleController,
-                  decoration: InputDecoration(
-                      labelText: 'Title',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12))),
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          event == null ? "Tambah Event" : "Edit Event",
+          style: const TextStyle(color: Colors.cyanAccent),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            children: [
+              TextField(
+                controller: titleController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: "Judul",
+                  labelStyle: TextStyle(color: Colors.cyanAccent),
                 ),
-                const SizedBox(height: 12),
-                // Description
-                TextField(
-                  controller: _descController,
-                  decoration: InputDecoration(
-                      labelText: 'Description',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12))),
-                  maxLines: 3,
+              ),
+              TextField(
+                controller: descController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: "Deskripsi",
+                  labelStyle: TextStyle(color: Colors.cyanAccent),
                 ),
-                const SizedBox(height: 12),
-                // Category
-                TextField(
-                  controller: _categoryController,
-                  decoration: InputDecoration(
-                      labelText: 'Category',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12))),
+              ),
+              TextField(
+                controller: categoryController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: "Kategori",
+                  labelStyle: TextStyle(color: Colors.cyanAccent),
                 ),
-                const SizedBox(height: 12),
-                // Date & Time
-                Row(
-                  children: [
-                    const Icon(Icons.calendar_today, size: 20),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: _eventDate,
-                          firstDate: DateTime(2000),
-                          lastDate: DateTime(2100),
-                        );
-                        if (picked != null) {
-                          setState(() {
-                            _eventDate = DateTime(
-                              picked.year,
-                              picked.month,
-                              picked.day,
-                              _eventDate.hour,
-                              _eventDate.minute,
-                            );
-                          });
-                        }
-                      },
-                      child: Text(DateFormat('yyyy-MM-dd').format(_eventDate)),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today, color: Colors.cyanAccent),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          selectedDate = DateTime(
+                            picked.year,
+                            picked.month,
+                            picked.day,
+                            selectedDate.hour,
+                            selectedDate.minute,
+                          );
+                        });
+                      }
+                    },
+                    child: Text(
+                      DateFormat('dd MMM yyyy').format(selectedDate),
+                      style: const TextStyle(color: Colors.white),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.access_time),
-                      onPressed: () async {
-                        final picked = await showTimePicker(
-                          context: context,
-                          initialTime: TimeOfDay.fromDateTime(_eventDate),
-                        );
-                        if (picked != null) {
-                          setState(() {
-                            _eventDate = DateTime(
-                              _eventDate.year,
-                              _eventDate.month,
-                              _eventDate.day,
-                              picked.hour,
-                              picked.minute,
-                            );
-                          });
-                        }
-                      },
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () async {
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime: TimeOfDay.fromDateTime(selectedDate),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          selectedDate = DateTime(
+                            selectedDate.year,
+                            selectedDate.month,
+                            selectedDate.day,
+                            picked.hour,
+                            picked.minute,
+                          );
+                        });
+                      }
+                    },
+                    child: Text(
+                      DateFormat('HH:mm').format(selectedDate),
+                      style: const TextStyle(color: Colors.white),
                     ),
-                  ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                value: priority,
+                dropdownColor: Colors.black,
+                decoration: const InputDecoration(
+                  labelText: "Prioritas",
+                  labelStyle: TextStyle(color: Colors.cyanAccent),
                 ),
-                const SizedBox(height: 12),
-                // Priority
-                Row(
-                  children: [
-                    const Text('Priority: '),
-                    DropdownButton<int>(
-                      value: _priority,
-                      items: const [
-                        DropdownMenuItem(value: 1, child: Text('Low')),
-                        DropdownMenuItem(value: 2, child: Text('Medium')),
-                        DropdownMenuItem(value: 3, child: Text('High')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) setState(() => _priority = val);
-                      },
-                    ),
-                  ],
+                items: [
+                  DropdownMenuItem(value: 1, child: Text("Rendah", style: TextStyle(color: Colors.white))),
+                  DropdownMenuItem(value: 2, child: Text("Sedang", style: TextStyle(color: Colors.white))),
+                  DropdownMenuItem(value: 3, child: Text("Tinggi", style: TextStyle(color: Colors.white))),
+                ],
+                onChanged: (val) {
+                  priority = val ?? 2;
+                },
+              ),
+              TextField(
+                keyboardType: TextInputType.number,
+                controller: TextEditingController(text: reminderMinutes.toString()),
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: "Reminder (menit sebelum)",
+                  labelStyle: TextStyle(color: Colors.cyanAccent),
                 ),
-                // Reminder
-                Row(
-                  children: [
-                    const Text('Reminder: '),
-                    DropdownButton<int>(
-                      value: _reminder,
-                      items: const [
-                        DropdownMenuItem(value: 0, child: Text('None')),
-                        DropdownMenuItem(value: 5, child: Text('5 min before')),
-                        DropdownMenuItem(value: 10, child: Text('10 min before')),
-                        DropdownMenuItem(value: 30, child: Text('30 min before')),
-                        DropdownMenuItem(value: 60, child: Text('1 hour before')),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) setState(() => _reminder = val);
-                      },
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                onChanged: (val) {
+                  reminderMinutes = int.tryParse(val) ?? 0;
+                },
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+        ),
+        actions: [
+          TextButton(
+            child: const Text("Batal", style: TextStyle(color: Colors.redAccent)),
+            onPressed: () => Navigator.pop(context),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.cyanAccent,
+              foregroundColor: Colors.black,
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              onPressed: () async {
-                final newEvent = Event(
-                  id: event?.id,
-                  title: _titleController.text,
-                  description: _descController.text,
-                  category: _categoryController.text,
-                  eventDate: _eventDate,
-                  priority: _priority,
-                  reminderMinutes: _reminder,
-                );
+            child: const Text("Simpan"),
+            onPressed: () async {
+              if (titleController.text.isEmpty) return;
 
-                if (event != null && event.id != null) {
-                  await NotificationService.instance.cancelNotification(event.id!);
-                  await EventDatabase.instance.updateEvent(newEvent);
-                } else {
-                  final id = await EventDatabase.instance.createEvent(newEvent);
-                  newEvent.id = id;
-                }
+              final newEvent = Event(
+                id: event?.id,
+                title: titleController.text,
+                description: descController.text,
+                category: categoryController.text,
+                eventDate: selectedDate,
+                priority: priority,
+                isCompleted: event?.isCompleted ?? false,
+                reminderMinutes: reminderMinutes,
+              );
 
-                if (newEvent.reminderMinutes > 0 && newEvent.id != null) {
-                  final scheduledTime = newEvent.eventDate.subtract(
-                    Duration(minutes: newEvent.reminderMinutes),
-                  );
-                  if (scheduledTime.isAfter(DateTime.now())) {
-                    await NotificationService.instance.scheduleNotification(
-                      newEvent.id!,
-                      newEvent.title,
-                      newEvent.description,
-                      scheduledTime,
-                    );
-                  }
-                }
+              if (event == null) {
+                await EventDatabase.instance.createEvent(newEvent);
+              } else {
+                await EventDatabase.instance.updateEvent(newEvent);
+              }
+              Navigator.pop(context);
+              _refreshEvents();
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
-                Navigator.pop(context);
-                _refreshEvents();
-              },
-              child: Text(event == null ? 'Save' : 'Update'),
-            ),
-          ],
+  Widget _buildPriorityChip(int priority) {
+    Color bgColor;
+    String text;
+
+    switch (priority) {
+      case 1:
+        bgColor = Colors.greenAccent.shade400;
+        text = "Rendah";
+        break;
+      case 2:
+        bgColor = Colors.orangeAccent.shade400;
+        text = "Sedang";
+        break;
+      case 3:
+        bgColor = Colors.redAccent.shade400;
+        text = "Tinggi";
+        break;
+      default:
+        bgColor = Colors.grey;
+        text = "Unknown";
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: bgColor.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: bgColor, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: bgColor.withOpacity(0.7),
+            blurRadius: 12,
+            spreadRadius: 1,
+            offset: const Offset(0, 0),
+          ),
+        ],
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.2,
         ),
       ),
     );
   }
 
-  Future<void> _deleteEvent(Event event) async {
-    if (event.id != null) {
-      await NotificationService.instance.cancelNotification(event.id!);
-      await EventDatabase.instance.deleteEvent(event.id!);
-      _refreshEvents();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Events'),
-        centerTitle: true,
+        title: const Text(
+          "Event",
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.cyanAccent),
+        ),
+        backgroundColor: Colors.black,
         elevation: 0,
-        backgroundColor: Colors.blueAccent,
       ),
-      body: _events.isEmpty
-          ? const Center(
+      body: FutureBuilder<List<Event>>(
+        future: _eventList,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(
+                child: CircularProgressIndicator(color: Colors.cyanAccent));
+          }
+          final events = snapshot.data!;
+          if (events.isEmpty) {
+            return const Center(
               child: Text(
-                'No events yet',
-                style: TextStyle(fontSize: 18, color: Colors.grey),
+                "Belum ada event",
+                style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: _events.length,
-              itemBuilder: (_, index) {
-                final e = _events[index];
-                final isUpcoming = _isUpcoming(e.eventDate);
-
-                return Card(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  elevation: 6,
-                  color: isUpcoming ? Colors.yellow[50] : Colors.white,
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(16),
-                    leading: Stack(
-                      alignment: Alignment.topRight,
-                      children: [
-                        Icon(Icons.event_note,
-                            size: 36, color: _priorityColor(e.priority)),
-                        if (e.reminderMinutes > 0)
-                          const Icon(Icons.notifications_active,
-                              size: 16, color: Colors.redAccent),
-                      ],
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: events.length,
+            itemBuilder: (context, index) {
+              final e = events[index];
+              return Card(
+                color: Colors.grey[900],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                child: ListTile(
+                  leading: IconButton(
+                    icon: Icon(
+                      e.isCompleted
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      color: e.isCompleted ? Colors.green : Colors.white70,
                     ),
-                    title: Text(e.title,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        Text(e.description),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                  color: _priorityColor(e.priority),
-                                  borderRadius: BorderRadius.circular(12)),
-                              child: Text(
-                                ['Low', 'Medium', 'High'][e.priority - 1],
-                                style: const TextStyle(color: Colors.white, fontSize: 12),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            if (e.category.isNotEmpty)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                    color: Colors.blueGrey,
-                                    borderRadius: BorderRadius.circular(12)),
-                                child: Text(
-                                  e.category,
-                                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          DateFormat('yyyy-MM-dd HH:mm').format(e.eventDate) +
-                              (e.reminderMinutes > 0
-                                  ? ' • Reminder: ${e.reminderMinutes} min'
-                                  : ''),
-                          style: const TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit, color: Colors.blueAccent),
-                          onPressed: () => _showEventDialog(event: e),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.redAccent),
-                          onPressed: () => _deleteEvent(e),
-                        ),
-                      ],
+                    onPressed: () async {
+                      final updated = Event(
+                        id: e.id,
+                        title: e.title,
+                        description: e.description,
+                        category: e.category,
+                        eventDate: e.eventDate,
+                        priority: e.priority,
+                        isCompleted: !e.isCompleted,
+                        reminderMinutes: e.reminderMinutes,
+                      );
+                      await EventDatabase.instance.updateEvent(updated);
+                      _refreshEvents();
+                    },
+                  ),
+                  title: Text(
+                    e.title,
+                    style: TextStyle(
+                      color: e.isCompleted ? Colors.grey : Colors.white,
+                      decoration: e.isCompleted
+                          ? TextDecoration.lineThrough
+                          : TextDecoration.none,
                     ),
                   ),
-                );
-              },
-            ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(e.description,
+                          style: const TextStyle(color: Colors.white70)),
+                      const SizedBox(height: 4),
+                      Text(
+                        "${DateFormat('dd MMM yyyy HH:mm').format(e.eventDate)} | ${e.category}",
+                        style: const TextStyle(color: Colors.cyanAccent),
+                      ),
+                      const SizedBox(height: 4),
+                      _buildPriorityChip(e.priority),
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.cyanAccent),
+                        onPressed: () => _showEventForm(event: e),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.redAccent),
+                        onPressed: () async {
+                          await EventDatabase.instance.deleteEvent(e.id!);
+                          _refreshEvents();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _showEventDialog(),
-        backgroundColor: Colors.blueAccent,
-        child: const Icon(Icons.add, size: 28),
+        backgroundColor: Colors.cyanAccent,
+        child: const Icon(Icons.add, color: Colors.black),
+        onPressed: () => _showEventForm(),
       ),
     );
   }

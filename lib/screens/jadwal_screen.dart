@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../db/jadwalmingguan_db.dart';
 
 class JadwalScreen extends StatefulWidget {
@@ -11,18 +13,15 @@ class JadwalScreen extends StatefulWidget {
 
 class _JadwalScreenState extends State<JadwalScreen> {
   final List<String> hariList = [
-    'senin',
-    'selasa',
-    'rabu',
-    'kamis',
-    'jumat',
-    'sabtu',
-    'minggu'
+    'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'
   ];
 
   Map<String, List<Map<String, dynamic>>> jadwalPerHari = {};
   late String selectedHari;
   bool isLoading = true;
+
+  InterstitialAd? _interstitialAd;
+  bool _isAdLoaded = false;
 
   @override
   void initState() {
@@ -33,6 +32,44 @@ class _JadwalScreenState extends State<JadwalScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadJadwal();
     });
+
+    _loadInterstitialAd();
+  }
+
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: Platform.isAndroid
+          ? 'ca-app-pub-3940256099942544/1033173712' // test ad unit ID
+          : 'ca-app-pub-3940256099942544/4411468910', // iOS test ad unit
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _interstitialAd = ad;
+          _isAdLoaded = true;
+        },
+        onAdFailedToLoad: (err) {
+          debugPrint('InterstitialAd failed to load: $err');
+          _isAdLoaded = false;
+        },
+      ),
+    );
+  }
+
+  void _showInterstitialAd() {
+    if (_isAdLoaded && _interstitialAd != null) {
+      _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          ad.dispose();
+          _loadInterstitialAd(); // load next ad
+        },
+        onAdFailedToShowFullScreenContent: (ad, err) {
+          ad.dispose();
+          _loadInterstitialAd();
+        },
+      );
+      _interstitialAd!.show();
+      _interstitialAd = null;
+    }
   }
 
   Future<void> _loadJadwal() async {
@@ -101,6 +138,8 @@ class _JadwalScreenState extends State<JadwalScreen> {
   }
 
   void _showAddEditDialog({Map<String, dynamic>? jadwal}) {
+    _showInterstitialAd(); // tampilkan ad saat membuka dialog add/edit
+
     String selectedHariDialog = jadwal?['hari'] ?? selectedHari;
     TextEditingController kegiatanController =
         TextEditingController(text: jadwal?['kegiatan'] ?? '');
@@ -122,7 +161,7 @@ class _JadwalScreenState extends State<JadwalScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: selectedHariDialog,
+                initialValue: selectedHariDialog,
                 items: hariList
                     .map((e) => DropdownMenuItem(
                           value: e,
@@ -311,12 +350,12 @@ class _JadwalScreenState extends State<JadwalScreen> {
           tr("jadwal_mingguan"),
           style: const TextStyle(
             fontWeight: FontWeight.bold,
-            color: Colors.white, // teks putih
+            color: Colors.white,
           ),
         ),
         centerTitle: true,
         elevation: 0,
-        backgroundColor: const Color(0xFF1768AC), // biru ala Dana
+        backgroundColor: const Color(0xFF1768AC),
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -325,7 +364,7 @@ class _JadwalScreenState extends State<JadwalScreen> {
                 Padding(
                   padding: const EdgeInsets.all(12.0),
                   child: DropdownButtonFormField<String>(
-                    value: selectedHari,
+                    initialValue: selectedHari,
                     items: hariList
                         .map((e) => DropdownMenuItem(
                               value: e,

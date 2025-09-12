@@ -7,6 +7,7 @@ import '../db/database_helper.dart';
 import 'settings_notifier.dart';
 import '../services/export_service.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class ExpenseScreen extends StatefulWidget {
   const ExpenseScreen({super.key});
@@ -23,7 +24,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   String? _selectedCategory;
   DateTime? _selectedDate;
   File? _selectedImage;
-  int? _editingId; // <-- untuk edit
+  int? _editingId;
 
   List<Map<String, dynamic>> _expenseList = [];
   final List<String> _categories = ["food", "transport", "shopping", "bills", "other"];
@@ -44,12 +45,66 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
 
   final ImagePicker _picker = ImagePicker();
 
+  // Banner Ad
+  BannerAd? _bannerAd;
+  bool _isBannerAdLoaded = false;
+
+  // Interstitial Ad
+  InterstitialAd? _interstitialAd;
+  bool _isInterstitialAdReady = false;
+  int _saveCount = 0; // hitung berapa kali save
+
   @override
   void initState() {
     super.initState();
     _selectedDate = DateTime.now();
     _loadSettings();
     _loadExpenses();
+    _loadBannerAd();
+    _loadInterstitialAd();
+  }
+
+  // ================= BANNER AD =================
+  void _loadBannerAd() {
+    _bannerAd = BannerAd(
+      adUnitId: Platform.isAndroid
+          ? 'ca-app-pub-3940256099942544/6300978111' // TEST ID Android
+          : 'ca-app-pub-3940256099942544/2934735716', // TEST ID iOS
+      request: const AdRequest(),
+      size: AdSize.banner,
+      listener: BannerAdListener(
+        onAdLoaded: (ad) {
+          setState(() {
+            _isBannerAdLoaded = true;
+          });
+        },
+        onAdFailedToLoad: (ad, error) {
+          ad.dispose();
+          debugPrint('Banner failed to load: $error');
+        },
+      ),
+    )..load();
+  }
+
+  // ================= INTERSTITIAL AD =================
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: Platform.isAndroid
+          ? 'ca-app-pub-3940256099942544/1033173712' // TEST ID Android
+          : 'ca-app-pub-3940256099942544/4411468910', // TEST ID iOS
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _interstitialAd = ad;
+          _isInterstitialAdReady = true;
+          debugPrint("Interstitial loaded");
+        },
+        onAdFailedToLoad: (error) {
+          debugPrint('Failed to load interstitial: $error');
+          _isInterstitialAdReady = false;
+        },
+      ),
+    );
   }
 
   void _loadSettings() {
@@ -98,6 +153,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     return double.tryParse(cleaned) ?? 0;
   }
 
+  // ================= SAVE EXPENSE =================
   Future<void> _saveExpense() async {
     if (_formKey.currentState!.validate()) {
       if (_selectedCategory == null || _selectedDate == null) {
@@ -129,6 +185,24 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
               tr("expense_saved", args: [_formatCurrency(amount), tr(_selectedCategory ?? "other")]))));
+
+      // ================= SHOW INTERSTITIAL =================
+      _saveCount++;
+      if (_saveCount % 3 == 0 && _isInterstitialAdReady) { // setiap 3 kali save
+        _interstitialAd?.fullScreenContentCallback = FullScreenContentCallback(
+          onAdDismissedFullScreenContent: (ad) {
+            ad.dispose();
+            _loadInterstitialAd();
+          },
+          onAdFailedToShowFullScreenContent: (ad, error) {
+            ad.dispose();
+            _loadInterstitialAd();
+          },
+        );
+        _interstitialAd?.show();
+        _interstitialAd = null;
+        _isInterstitialAdReady = false;
+      }
     }
   }
 
@@ -141,6 +215,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     _editingId = null;
   }
 
+  // ================= DELETE =================
   Future<void> _confirmDeleteExpense(int id) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -172,11 +247,13 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr("data_deleted"))));
   }
 
+  // ================= IMAGE PICKER =================
   Future<void> _pickImage(ImageSource source) async {
     final picked = await _picker.pickImage(source: source, maxWidth: 800, maxHeight: 800);
     if (picked != null) setState(() => _selectedImage = File(picked.path));
   }
 
+  // ================= ADD / EDIT =================
   void _showAddExpenseSheet(BuildContext context, {Map<String, dynamic>? editingExpense}) {
     if (editingExpense != null) {
       _amountController.text = (editingExpense['amount'] as num).toString();
@@ -268,15 +345,17 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
                 if (_selectedImage != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      _selectedImage!,
-                      width: double.infinity,
-                      height: 180,
-                      fit: BoxFit.cover,
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(
+                        _selectedImage!,
+                        width: double.infinity,
+                        height: 180,
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
                 const SizedBox(height: 20),
@@ -307,6 +386,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     );
   }
 
+  // ================= WIDGETS =================
   Widget _buildFancyTextField({
     required TextEditingController controller,
     required String label,
@@ -346,14 +426,12 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   }
 
   Future<void> _sharePDF() async {
-    final path = await ExportService.exportExpensePDF(
-        month: _selectedMonth, year: _selectedYear);
+    final path = await ExportService.exportExpensePDF(month: _selectedMonth, year: _selectedYear);
     await ExportService.shareFile(path, text: tr("share_expense_pdf"));
   }
 
   Future<void> _shareExcel() async {
-    final path = await ExportService.exportExpenseExcel(
-        month: _selectedMonth, year: _selectedYear);
+    final path = await ExportService.exportExpenseExcel(month: _selectedMonth, year: _selectedYear);
     await ExportService.shareFile(path, text: tr("share_expense_excel"));
   }
 
@@ -361,9 +439,12 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   void dispose() {
     _amountController.dispose();
     _noteController.dispose();
+    _bannerAd?.dispose();
+    _interstitialAd?.dispose();
     super.dispose();
   }
 
+  // ================= BUILD =================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -402,6 +483,16 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
               ),
             ),
           ),
+
+          // Banner Ad
+          if (_isBannerAdLoaded && _bannerAd != null)
+            Container(
+              width: _bannerAd!.size.width.toDouble(),
+              height: _bannerAd!.size.height.toDouble(),
+              alignment: Alignment.center,
+              child: AdWidget(ad: _bannerAd!),
+            ),
+
           // Dropdown bulan & tahun
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -442,6 +533,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
               ],
             ),
           ),
+
+          // Expense List
           Expanded(
             child: _filteredExpenseList.isEmpty
                 ? Center(child: Text(tr("no_data")))

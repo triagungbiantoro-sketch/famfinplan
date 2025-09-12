@@ -1,11 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../db/notes_database.dart';
 
@@ -27,11 +27,33 @@ class _NotesScreenState extends State<NotesScreen> {
   int _currentPage = 0;
   final int _itemsPerPage = 4;
 
+  late BannerAd _bannerAd;
+  bool _isBannerAdReady = false;
+
   @override
   void initState() {
     super.initState();
     _refreshNotes();
     _searchController.addListener(_onSearchChanged);
+
+    _bannerAd = BannerAd(
+      adUnitId: 'ca-app-pub-3940256099942544/6300978111', // Test Ad Unit ID
+      request: const AdRequest(),
+      size: AdSize.banner,
+      listener: BannerAdListener(
+        onAdLoaded: (_) {
+          setState(() {
+            _isBannerAdReady = true;
+          });
+        },
+        onAdFailedToLoad: (ad, err) {
+          print('Failed to load a banner ad: ${err.message}');
+          _isBannerAdReady = false;
+          ad.dispose();
+        },
+      ),
+    );
+    _bannerAd.load();
   }
 
   Future<void> _refreshNotes({bool scrollToFirst = true}) async {
@@ -364,6 +386,7 @@ class _NotesScreenState extends State<NotesScreen> {
   void dispose() {
     _searchController.dispose();
     _scrollController.dispose();
+    _bannerAd.dispose();
     super.dispose();
   }
 
@@ -384,6 +407,12 @@ class _NotesScreenState extends State<NotesScreen> {
       ),
       body: Column(
         children: [
+          if (_isBannerAdReady)
+            SizedBox(
+              width: _bannerAd.size.width.toDouble(),
+              height: _bannerAd.size.height.toDouble(),
+              child: AdWidget(ad: _bannerAd),
+            ),
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: TextField(
@@ -451,24 +480,23 @@ class _NotesScreenState extends State<NotesScreen> {
                                       child: GestureDetector(
                                         onTap: () {
                                           Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (_) => Scaffold(
-                                                  backgroundColor: Colors.black,
-                                                  appBar: AppBar(
-                                                    backgroundColor: Colors.transparent,
-                                                    elevation: 0,
-                                                    iconTheme: const IconThemeData(color: Colors.white), // <-- tombol back jadi putih
-                                                  ),
-                                                  body: Center(
-                                                    child: InteractiveViewer(
-                                                      child: Image.file(File(imagePath)),
-                                                    ),
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => Scaffold(
+                                                backgroundColor: Colors.black,
+                                                appBar: AppBar(
+                                                  backgroundColor: Colors.transparent,
+                                                  elevation: 0,
+                                                  iconTheme: const IconThemeData(color: Colors.white),
+                                                ),
+                                                body: Center(
+                                                  child: InteractiveViewer(
+                                                    child: Image.file(File(imagePath)),
                                                   ),
                                                 ),
                                               ),
-                                            );
-
+                                            ),
+                                          );
                                         },
                                         child: Image.file(
                                           File(imagePath),

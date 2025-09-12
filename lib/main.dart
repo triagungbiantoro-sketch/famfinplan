@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'screens/dashboard.dart';
 import 'services/notification_service.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();  
@@ -9,6 +10,9 @@ Future<void> main() async {
 
   // Inisialisasi NotificationService (sudah include timezone)
   await NotificationService.instance.init();
+
+    // ===== Inisialisasi Google Mobile Ads =====
+  await MobileAds.instance.initialize();
 
   runApp(
     EasyLocalization(

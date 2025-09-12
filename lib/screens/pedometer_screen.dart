@@ -3,15 +3,19 @@ import 'package:pedometer/pedometer.dart';
 import 'dart:async';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
 
+  // Init AdMob
+  MobileAds.instance.initialize();
+
   runApp(
     EasyLocalization(
       supportedLocales: const [Locale('en'), Locale('id')],
-      path: 'assets/langs', // folder JSON bahasa
+      path: 'assets/langs',
       fallbackLocale: const Locale('en'),
       child: const PedometerApp(),
     ),
@@ -53,14 +57,24 @@ class _PedometerScreenState extends State<PedometerScreen> {
 
   PedometerState _pedometerState = PedometerState.stopped;
 
-  int _totalStepsAtPause = 0; // total langkah saat pause
-  int _initialStepCount = 0; // langkah awal saat start/resume
-  final List<Map<String, dynamic>> _history = []; // history langkah
+  int _totalStepsAtPause = 0;
+  int _initialStepCount = 0;
+  final List<Map<String, dynamic>> _history = [];
+
+  // App Open Ad
+  AppOpenAd? _appOpenAd;
+  bool _isShowingAppOpenAd = false;
+
+  // Interstitial Ad
+  InterstitialAd? _interstitialAd;
+  bool _isInterstitialAdReady = false;
 
   @override
   void initState() {
     super.initState();
     _requestPermission();
+    _loadAppOpenAd();
+    _loadInterstitialAd();
   }
 
   Future<void> _requestPermission() async {
@@ -71,6 +85,86 @@ class _PedometerScreenState extends State<PedometerScreen> {
     }
   }
 
+  // ---------------- App Open Ad ----------------
+  void _loadAppOpenAd() {
+    AppOpenAd.load(
+      adUnitId: 'ca-app-pub-3940256099942544/3419835294', // test ad unit
+      request: const AdRequest(),
+      adLoadCallback: AppOpenAdLoadCallback(
+        onAdLoaded: (ad) {
+          debugPrint('App Open Ad loaded');
+          _appOpenAd = ad;
+          _showAppOpenAd();
+        },
+        onAdFailedToLoad: (error) {
+          debugPrint('Failed to load App Open Ad: $error');
+        },
+      ),
+    );
+  }
+
+  void _showAppOpenAd() {
+    if (_appOpenAd == null || _isShowingAppOpenAd) return;
+
+    _isShowingAppOpenAd = true;
+
+    _appOpenAd!.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _isShowingAppOpenAd = false;
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        ad.dispose();
+        _isShowingAppOpenAd = false;
+      },
+    );
+
+    _appOpenAd!.show();
+  }
+
+  // ---------------- Interstitial Ad ----------------
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: 'ca-app-pub-3940256099942544/1033173712', // test ad unit
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _interstitialAd = ad;
+          _isInterstitialAdReady = true;
+          debugPrint('Interstitial Ad loaded');
+        },
+        onAdFailedToLoad: (err) {
+          debugPrint('Failed to load Interstitial Ad: $err');
+          _isInterstitialAdReady = false;
+        },
+      ),
+    );
+  }
+
+  void _showInterstitialAd(VoidCallback onAdDismissed) {
+    if (_isInterstitialAdReady && _interstitialAd != null) {
+      _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          ad.dispose();
+          _loadInterstitialAd(); // preload lagi
+          onAdDismissed();
+        },
+        onAdFailedToShowFullScreenContent: (ad, err) {
+          ad.dispose();
+          _loadInterstitialAd();
+          onAdDismissed();
+        },
+      );
+
+      _interstitialAd!.show();
+      _interstitialAd = null;
+      _isInterstitialAdReady = false;
+    } else {
+      onAdDismissed();
+    }
+  }
+
+  // ---------------- Pedometer logic ----------------
   void _handleButton() {
     switch (_pedometerState) {
       case PedometerState.stopped:
@@ -95,6 +189,8 @@ class _PedometerScreenState extends State<PedometerScreen> {
     });
   }
 
+  int _pauseCount = 0; // hitung berapa kali pause
+
   void _pausePedometer() {
     _subscription?.cancel();
     _subscription = null;
@@ -107,6 +203,14 @@ class _PedometerScreenState extends State<PedometerScreen> {
     setState(() {
       _pedometerState = PedometerState.paused;
     });
+
+    // Tambahkan logika interstitial otomatis
+    _pauseCount++;
+    if (_pauseCount % 3 == 0) { // setiap 3 kali pause
+      _showInterstitialAd(() {
+        debugPrint("Interstitial after pause dismissed");
+      });
+    }
   }
 
   void _resumePedometer() {
@@ -118,6 +222,12 @@ class _PedometerScreenState extends State<PedometerScreen> {
   }
 
   void _resetSteps() {
+    _showInterstitialAd(() {
+      _actuallyResetSteps();
+    });
+  }
+
+  void _actuallyResetSteps() {
     _subscription?.cancel();
     _subscription = null;
 
@@ -133,9 +243,7 @@ class _PedometerScreenState extends State<PedometerScreen> {
   }
 
   void _onStepCount(StepCount event) {
-    if (_initialStepCount == 0) {
-      _initialStepCount = event.steps;
-    }
+    if (_initialStepCount == 0) _initialStepCount = event.steps;
     _stepsNotifier.value = event.steps - _initialStepCount + _totalStepsAtPause;
   }
 
@@ -161,6 +269,8 @@ class _PedometerScreenState extends State<PedometerScreen> {
   void dispose() {
     _subscription?.cancel();
     _stepsNotifier.dispose();
+    _appOpenAd?.dispose();
+    _interstitialAd?.dispose();
     super.dispose();
   }
 
@@ -175,6 +285,7 @@ class _PedometerScreenState extends State<PedometerScreen> {
     }
   }
 
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(

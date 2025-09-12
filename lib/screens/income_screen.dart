@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -7,6 +8,7 @@ import '../db/database_helper.dart';
 import 'settings_notifier.dart';
 import '../services/export_service.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class IncomeScreen extends StatefulWidget {
   const IncomeScreen({super.key});
@@ -43,12 +45,27 @@ class _IncomeScreenState extends State<IncomeScreen> {
 
   final ImagePicker _picker = ImagePicker();
 
+  // =================== Ads ===================
+  InterstitialAd? _interstitialAd;
+  bool _isInterstitialAdReady = false;
+
+  BannerAd? _bannerAd;
+  bool _isBannerAdReady = false;
+
+  // Counters untuk menampilkan interstitial
+  int _saveCounter = 0;
+  int _deleteCounter = 0;
+
   @override
   void initState() {
     super.initState();
     _selectedDate = DateTime.now();
     _loadSettings();
     _loadIncome();
+
+    // Initialize Ads
+    _loadInterstitialAd();
+    _loadBannerAd();
   }
 
   void _loadSettings() {
@@ -125,9 +142,18 @@ class _IncomeScreenState extends State<IncomeScreen> {
       _clearForm();
       _loadIncome();
 
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              tr("income_saved", args: [_formatCurrency(amount), tr(_selectedCategory ?? "other")]))));
+      _saveCounter++;
+      if (_saveCounter % 3 == 0) {
+        _showInterstitialAd(() {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(tr("income_saved",
+                  args: [_formatCurrency(amount), tr(_selectedCategory ?? "other")]))));
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(tr("income_saved",
+                args: [_formatCurrency(amount), tr(_selectedCategory ?? "other")]))));
+      }
     }
   }
 
@@ -163,8 +189,17 @@ class _IncomeScreenState extends State<IncomeScreen> {
     if (confirm == true) {
       await DatabaseHelper.instance.deleteIncome(id);
       _loadIncome();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(tr("data_deleted"))));
+
+      _deleteCounter++;
+      if (_deleteCounter % 3 == 0) {
+        _showInterstitialAd(() {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(tr("data_deleted"))));
+        });
+      } else {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(tr("data_deleted"))));
+      }
     }
   }
 
@@ -338,7 +373,60 @@ class _IncomeScreenState extends State<IncomeScreen> {
   void dispose() {
     _amountController.dispose();
     _noteController.dispose();
+    _interstitialAd?.dispose();
+    _bannerAd?.dispose();
     super.dispose();
+  }
+
+  // =================== Interstitial Ads ===================
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: 'ca-app-pub-3940256099942544/1033173712', // test ads id
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          _interstitialAd = ad;
+          _isInterstitialAdReady = true;
+          _interstitialAd?.setImmersiveMode(true);
+        },
+        onAdFailedToLoad: (err) {
+          _isInterstitialAdReady = false;
+        },
+      ),
+    );
+  }
+
+  void _showInterstitialAd(VoidCallback onComplete) {
+    if (_isInterstitialAdReady && _interstitialAd != null) {
+      _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          ad.dispose();
+          _loadInterstitialAd();
+          onComplete();
+        },
+        onAdFailedToShowFullScreenContent: (ad, err) {
+          ad.dispose();
+          _loadInterstitialAd();
+          onComplete();
+        },
+      );
+      _interstitialAd!.show();
+    } else {
+      onComplete();
+    }
+  }
+
+  // =================== Banner Ads ===================
+  void _loadBannerAd() {
+    _bannerAd = BannerAd(
+      adUnitId: 'ca-app-pub-3940256099942544/6300978111', // test ads id
+      size: AdSize.banner,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (_) => setState(() => _isBannerAdReady = true),
+        onAdFailedToLoad: (_, __) => setState(() => _isBannerAdReady = false),
+      ),
+    )..load();
   }
 
   @override
@@ -416,154 +504,79 @@ class _IncomeScreenState extends State<IncomeScreen> {
               ],
             ),
           ),
-          // Income list
+          // Income list + Banner
           Expanded(
-            child: _filteredIncomeList.isEmpty
-                ? Center(child: Text(tr("no_data")))
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    itemCount: _filteredIncomeList.length,
-                    itemBuilder: (context, index) {
-                      final inc = _filteredIncomeList[index];
-                      final color = _categoryColors[inc["category"]] ?? Colors.grey;
-                      final date = DateTime.parse(inc["date"]);
-                      final imagePath = inc["imagePath"] as String?;
+            child: Column(
+              children: [
+                Expanded(
+                  child: _filteredIncomeList.isEmpty
+                      ? Center(child: Text(tr("no_data")))
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          itemCount: _filteredIncomeList.length,
+                          itemBuilder: (context, index) {
+                            final inc = _filteredIncomeList[index];
+                            final color = _categoryColors[inc["category"]] ?? Colors.grey;
+                            final date = DateTime.parse(inc["date"]);
+                            final imagePath = inc["imagePath"] as String?;
 
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 2,
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          leading: CircleAvatar(
-                            radius: 20,
-                            backgroundColor: color.withOpacity(0.2),
-                            child: Icon(Icons.attach_money, color: color, size: 20),
-                          ),
-                          title: Text(
-                            _formatCurrency((inc["amount"] as num).toDouble()),
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold, color: Colors.grey.shade900, fontSize: 16),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(tr(inc["category"]),
-                                  style: TextStyle(color: color, fontWeight: FontWeight.w600)),
-                              Text(DateFormat("dd/MM/yyyy", context.locale.toString()).format(date),
-                                  style: const TextStyle(fontSize: 12)),
-                              if ((inc["note"] ?? "").isNotEmpty)
-                                Text(inc["note"], style: const TextStyle(color: Colors.black54, fontSize: 12)),
-                              if (imagePath != null && imagePath.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8.0),
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => FullScreenImagePage(imageFile: File(imagePath)),
-                                        ),
-                                      );
-                                    },
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: Image.file(
-                                        File(imagePath),
-                                        width: double.infinity,
-                                        height: 120,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                  ),
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              elevation: 2,
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                leading: CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: color.withOpacity(0.2),
+                                  child: Icon(Icons.attach_money, color: color, size: 20),
                                 ),
-                            ],
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                  icon: const Icon(Icons.edit, color: Colors.orange, size: 20),
-                                  onPressed: () => _showAddIncomeSheet(editingIncome: inc)),
-                              IconButton(
-                                  icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                                  onPressed: () => _confirmDeleteIncome(inc["id"])),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                                title: Text(
+                                  _formatCurrency(inc["amount"] as double),
+                                  style: TextStyle(fontWeight: FontWeight.bold, color: color),
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (inc["note"] != null && inc["note"].toString().isNotEmpty)
+                                      Text(inc["note"]),
+                                    Text(DateFormat('dd/MM/yyyy').format(date),
+                                        style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                                  ],
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                        onPressed: () => _showAddIncomeSheet(editingIncome: inc),
+                                        icon: const Icon(Icons.edit, color: Colors.blue)),
+                                    IconButton(
+                                        onPressed: () => _confirmDeleteIncome(inc["id"] as int),
+                                        icon: const Icon(Icons.delete, color: Colors.redAccent)),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }),
+                ),
+                if (_isBannerAdReady && _bannerAd != null)
+                  SizedBox(height: 50, child: AdWidget(ad: _bannerAd!)),
+              ],
+            ),
           ),
         ],
       ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton(
-            heroTag: "add_income",
-            onPressed: () => _showAddIncomeSheet(),
-            backgroundColor: Colors.green,
-            child: const Icon(Icons.add, color: Colors.white),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: "share_income",
-            onPressed: () {
-              showModalBottomSheet(
-                  context: context,
-                  shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-                  builder: (context) => Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ListTile(
-                              leading: const Icon(Icons.picture_as_pdf),
-                              title: Text(tr("share_pdf")),
-                              onTap: () {
-                                Navigator.pop(context);
-                                _sharePDF();
-                              }),
-                          ListTile(
-                              leading: const Icon(Icons.grid_on),
-                              title: Text(tr("share_excel")),
-                              onTap: () {
-                                Navigator.pop(context);
-                                _shareExcel();
-                              }),
-                        ],
-                      ));
-            },
-            backgroundColor: Colors.blue,
-            child: const Icon(Icons.share, color: Colors.white),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class FullScreenImagePage extends StatelessWidget {
-  final File imageFile;
-
-  const FullScreenImagePage({super.key, required this.imageFile});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
-      ),
-      body: Center(
-        child: InteractiveViewer(
-          panEnabled: true,
-          minScale: 0.5,
-          maxScale: 4,
-          child: Image.file(imageFile),
-        ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.green,
+        onPressed: () {
+          // Bisa random muncul interstitial (50% chance)
+          if (Random().nextBool()) {
+            _showInterstitialAd(() => _showAddIncomeSheet());
+          } else {
+            _showAddIncomeSheet();
+          }
+        },
+        child: const Icon(Icons.add),
       ),
     );
   }

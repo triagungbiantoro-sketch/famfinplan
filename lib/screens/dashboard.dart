@@ -10,6 +10,7 @@ import 'summary_card.dart';
 import 'pedometer_screen.dart';
 import 'jadwal_screen.dart'; 
 import 'event_screen.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -21,6 +22,41 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedMonth = DateTime.now().month;
   int _selectedYear = DateTime.now().year;
+
+  // Banner Ads
+  BannerAd? _bannerAd;
+  bool _isBannerAdReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBannerAd();
+  }
+
+  void _loadBannerAd() {
+    _bannerAd = BannerAd(
+      adUnitId: 'ca-app-pub-3940256099942544/6300978111', // test AdMob ID
+      size: AdSize.banner,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (_) {
+          setState(() {
+            _isBannerAdReady = true;
+          });
+        },
+        onAdFailedToLoad: (ad, error) {
+          debugPrint('Banner failed to load: ${error.message}');
+          ad.dispose();
+        },
+      ),
+    )..load();
+  }
+
+  @override
+  void dispose() {
+    _bannerAd?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +82,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             MaterialPageRoute(builder: (_) => const ExpenseScreen()),
           );
         },
+      ),      
+      _DashboardMenu(
+        icon: Icons.bar_chart,
+        label: tr("budget"),
+        color: Colors.blue,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const BudgetingScreen()),
+          );
+        },
       ),
       _DashboardMenu(
         icon: Icons.note,
@@ -59,19 +106,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         },
       ),
       _DashboardMenu(
-        icon: Icons.bar_chart,
-        label: tr("budget"),
-        color: Colors.blue,
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const BudgetingScreen()),
-          );
-        },
-      ),
-      _DashboardMenu(
-        icon: Icons.favorite, // ✅ ikon langkah/pedometer
-        label: "Pedometer",   // bisa juga pakai tr("pedometer") kalau ditambah di translation
+        icon: Icons.favorite,
+        label: "Pedometer",
         color: Colors.pink,
         onTap: () {
           Navigator.push(
@@ -92,8 +128,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         },
       ),
       _DashboardMenu(
-        icon: Icons.calendar_month, // icon untuk Jadwal
-        label: "Jadwal",           // bisa juga pakai tr("jadwal") jika ditambahkan di translation
+        icon: Icons.calendar_month,
+        label: "Jadwal",
         color: Colors.deepPurple,
         onTap: () {
           Navigator.push(
@@ -102,18 +138,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           );
         },
       ),      
-      
       _DashboardMenu(
-          icon: Icons.event,
-          label: "Event", // bisa juga tr("event") jika ditambahkan di translation
-          color: Colors.indigo,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const EventScreen()),
-            );
-          },
-        ),
+        icon: Icons.event,
+        label: "Event",
+        color: Colors.indigo,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const EventScreen()),
+          );
+        },
+      ),
       _DashboardMenu(
         icon: Icons.tune,
         label: tr("settings"),
@@ -138,68 +173,78 @@ class _DashboardScreenState extends State<DashboardScreen> {
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.black),
       ),
-      body: Container(
-        color: Colors.green.withOpacity(0.05), // ultra tipis hijau
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              // Judul Ringkasan
-              Padding(
-                padding: const EdgeInsets.only(top: 20, left: 16, right: 16),
-                child: Row(
-                  children: [
-                    const Icon(Icons.insights, color: Colors.blueAccent),
-                    const SizedBox(width: 8),
-                    Text(
-                      tr("monthly_summary"),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  // Judul Ringkasan
+                  Padding(
+                    padding: const EdgeInsets.only(top: 20, left: 16, right: 16),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.insights, color: Colors.blueAccent),
+                        const SizedBox(width: 8),
+                        Text(
+                          tr("monthly_summary"),
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-
-              // Ringkasan
-              SummaryCard(
-                selectedMonth: _selectedMonth,
-                selectedYear: _selectedYear,
-                onMonthChanged: (val) => setState(() => _selectedMonth = val),
-                onYearChanged: (val) => setState(() => _selectedYear = val),
-              ),
-
-              const SizedBox(height: 28),
-
-              // Menu Navigasi
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: menuItems.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    mainAxisSpacing: 20,
-                    crossAxisSpacing: 20,
-                    childAspectRatio: 0.8,
                   ),
-                  itemBuilder: (context, index) {
-                    final menu = menuItems[index];
-                    return _buildMenuItem(
-                      context,
-                      icon: menu.icon,
-                      label: menu.label,
-                      color: menu.color,
-                      onTap: menu.onTap,
-                    );
-                  },
-                ),
+
+                  // Ringkasan
+                  SummaryCard(
+                    selectedMonth: _selectedMonth,
+                    selectedYear: _selectedYear,
+                    onMonthChanged: (val) => setState(() => _selectedMonth = val),
+                    onYearChanged: (val) => setState(() => _selectedYear = val),
+                  ),
+
+                  const SizedBox(height: 28),
+
+                  // Menu Navigasi
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: menuItems.length,
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 4,
+                        mainAxisSpacing: 20,
+                        crossAxisSpacing: 20,
+                        childAspectRatio: 0.8,
+                      ),
+                      itemBuilder: (context, index) {
+                        final menu = menuItems[index];
+                        return _buildMenuItem(
+                          context,
+                          icon: menu.icon,
+                          label: menu.label,
+                          color: menu.color,
+                          onTap: menu.onTap,
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                ],
               ),
-              const SizedBox(height: 30),
-            ],
+            ),
           ),
-        ),
+          // Banner Ads
+          if (_isBannerAdReady && _bannerAd != null)
+            SizedBox(
+              width: _bannerAd!.size.width.toDouble(),
+              height: _bannerAd!.size.height.toDouble(),
+              child: AdWidget(ad: _bannerAd!),
+            ),
+        ],
       ),
     );
   }
